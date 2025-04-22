@@ -66,6 +66,7 @@ const cy = cytoscape({
                 'text-valign': 'center',
                 'text-halign': 'center',
                 'font-size': '10px',
+                'font-weight': '300', // Added to make font less thick (light)
                 'text-wrap': 'wrap',
                 'text-max-width': 110,
                 'text-outline-color': '#fff',
@@ -105,7 +106,7 @@ const cy = cytoscape({
             style: {
                 'width': 2,
                 'line-color': '#666',
-                'target-arrow-shape W': 'triangle',
+                'target-arrow-shape': 'triangle', // Fixed typo from 'target-arrow-shape W'
                 'target-arrow-color': '#666',
                 'curve-style': 'bezier'
             }
