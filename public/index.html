@@ -5,28 +5,39 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LLM Bayesian Network Visualization</title>
     <link rel="stylesheet" href="style.css">
-    <script src="https://unpkg.com/cytoscape/dist/cytoscape.min.js"></script>
-    <!-- Using cola.js layout as it can handle DAGs well and often looks better -->
-    <script src="https://unpkg.com/cola@4/cola.min.js"></script>
+    <script src="https://unpkg.com/cytoscape@3.23.0/dist/cytoscape.min.js"></script>
+    <!-- Explicitly load cola.js first with a specific version -->
+    <script src="https://cdn.jsdelivr.net/npm/webcola@3.4.0/WebCola/cola.min.js"></script>
+    <!-- Load cytoscape-cola after cola.js -->
     <script src="https://unpkg.com/cytoscape-cola@2.5.1/cytoscape-cola.js"></script>
+    <!-- Load cytoscape-dagre as a fallback -->
+    <script src="https://unpkg.com/cytoscape-dagre@2.5.0/cytoscape-dagre.js"></script>
     <script>
         console.log("Attempting to register Cytoscape Cola layout...");
+        console.log("Checking for 'cola' global:", typeof window.cola);
         console.log("Checking for 'cytoscapeCola' global:", typeof window.cytoscapeCola);
-        console.log("Checking for 'cola' global:", typeof window.cola); // Note: cola.js itself also adds a 'cola' global
 
-        if (typeof cytoscapeCola === 'function') {
+        if (typeof window.cola !== 'undefined' && typeof window.cytoscapeCola === 'function') {
             try {
-                 cytoscape.use( cytoscapeCola );
-                 console.log("SUCCESS: Registered Cytoscape Cola layout using 'cytoscapeCola'.");
+                cytoscape.use(cytoscapeCola);
+                console.log("SUCCESS: Registered Cytoscape Cola layout.");
             } catch (e) {
-                 console.error("ERROR: Failed to register using 'cytoscapeCola':", e);
+                console.error("ERROR: Failed to register Cytoscape Cola layout:", e);
             }
         } else {
-            console.warn("'cytoscapeCola' function not found. Will rely on Cytoscape finding it automatically or manual registration if needed.");
-             // As a fallback, sometimes just including the script is enough if it self-registers,
-             // but explicit registration is usually required. Let's assume it might self-register
-             // and see if the error changes. If it still fails, the issue is likely elsehwere
-             // or the global name is different.
+            console.warn("Cola or cytoscapeCola not available. Will attempt to use dagre layout as fallback.");
+        }
+
+        // Register dagre layout as a fallback
+        if (typeof window.cytoscapeDagre === 'function') {
+            try {
+                cytoscape.use(cytoscapeDagre);
+                console.log("SUCCESS: Registered Cytoscape Dagre layout as fallback.");
+            } catch (e) {
+                console.error("ERROR: Failed to register Cytoscape Dagre layout:", e);
+            }
+        } else {
+            console.warn("Cytoscape Dagre not available. Graph layout may fail.");
         }
     </script>
 </head>
@@ -41,13 +52,13 @@
         <input type="number" id="input-A2" name="A2" min="0" max="1" step="0.01" value="0.5"><br>
         <label for="input-A3">A3 (Task Familiarity):</label>
         <input type="number" id="input-A3" name="A3" min="0" max="1" step="0.01" value="0.5"><br>
-         <label for="input-A4">A4 (Goal Clarity):</label>
+        <label for="input-A4">A4 (Goal Clarity):</label>
         <input type="number" id="input-A4" name="A4" min="0" max="1" step="0.01" value="0.5"><br>
-         <label for="input-A5">A5 (Motivation):</label>
+        <label for="input-A5">A5 (Motivation):</label>
         <input type="number" id="input-A5" name="A5" min="0" max="1" step="0.01" value="0.5"><br>
-         <label for="input-UI">UI (UI State):</label>
+        <label for="input-UI">UI (UI State):</label>
         <input type="number" id="input-UI" name="UI" min="0" max="1" step="0.01" value="0.5"><br>
-         <label for="input-H">H (History):</label>
+        <label for="input-H">H (History):</label>
         <input type="number" id="input-H" name="H" min="0" max="1" step="0.01" value="0.5"><br>
 
         <button id="update-button">Update Probabilities</button>
@@ -61,20 +72,21 @@
             <h3>Input States Provided:</h3>
             <p>Gathering inputs...</p>
         </div>
-         <div id="structure-context">
+        <div id="structure-context">
             <h3>Node Dependencies (DAG):</h3>
             <p>Loading structure...</p>
         </div>
-         <div id="rules-context">
+        <div id="rules-context">
             <h3>Qualitative Rules Provided:</h3>
             <p>Loading rules...</p>
         </div>
         <div id="node-descriptions-context">
             <h3>Node Descriptions:</h3>
-             <p>Loading descriptions...</p>
+            <p>Loading descriptions...</p>
         </div>
     </div>
 
     <script src="script.js"></script>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'934809ffced4adc6',t:'MTc0NTM1NTUwNC4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script>
 </body>
 </html>
