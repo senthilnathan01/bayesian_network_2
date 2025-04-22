@@ -1,9 +1,7 @@
 // --- public/script.js ---
 
 // --- Initialize Cytoscape (cy variable) ---
-// Define the graph elements globally or fetch them (here defined manually to match backend)
 const graphElements = [
-    // Nodes (Inputs) - Add 'label' in data for display
     { data: { id: 'A1', fullName: 'Domain Expertise' } },
     { data: { id: 'A2', fullName: 'Web Literacy' } },
     { data: { id: 'A3', fullName: 'Task Familiarity' } },
@@ -11,67 +9,46 @@ const graphElements = [
     { data: { id: 'A5', fullName: 'Motivation' } },
     { data: { id: 'UI', fullName: 'UI State (Quality/Clarity)' } },
     { data: { id: 'H', fullName: 'History (Relevant past interactions)' } },
-
-    // Nodes (Intermediate States)
     { data: { id: 'IS1', fullName: 'Confidence' } },
     { data: { id: 'IS2', fullName: 'Cognitive Load' } },
     { data: { id: 'IS3', fullName: 'Task Understanding' } },
     { data: { id: 'IS4', fullName: 'Interaction Fluency' } },
     { data: { id: 'IS5', fullName: 'Relevant Knowledge Activation' } },
-
-    // Nodes (Outputs)
     { data: { id: 'O1', fullName: 'Predicted Success Probability' } },
     { data: { id: 'O2', fullName: 'Action Speed/Efficiency' } },
     { data: { id: 'O3', fullName: 'Help Seeking Likelihood' } },
-
-    // Edges (Based on the new NODE_PARENTS structure from main.py)
-    // IS3 <- A1, A3, A4, H
     { data: { source: 'A1', target: 'IS3' } },
     { data: { source: 'A3', target: 'IS3' } },
     { data: { source: 'A4', target: 'IS3' } },
     { data: { source: 'H', target: 'IS3' } },
-
-    // IS4 <- A2, UI, H
     { data: { source: 'A2', target: 'IS4' } },
     { data: { source: 'UI', target: 'IS4' } },
     { data: { source: 'H', target: 'IS4' } },
-
-    // IS5 <- A1, A3, IS3
     { data: { source: 'A1', target: 'IS5' } },
     { data: { source: 'A3', target: 'IS5' } },
     { data: { source: 'IS3', target: 'IS5' } },
-
-    // IS2 <- IS4, IS3
     { data: { source: 'IS4', target: 'IS2' } },
     { data: { source: 'IS3', target: 'IS2' } },
-
-    // IS1 <- A5, IS2, IS3, IS4, IS5
     { data: { source: 'A5', target: 'IS1' } },
     { data: { source: 'IS2', target: 'IS1' } },
     { data: { source: 'IS3', target: 'IS1' } },
     { data: { source: 'IS4', target: 'IS1' } },
     { data: { source: 'IS5', target: 'IS1' } },
-
-    // O1 <- IS1, IS2, IS3, IS5
     { data: { source: 'IS1', target: 'O1' } },
     { data: { source: 'IS2', target: 'O1' } },
     { data: { source: 'IS3', target: 'O1' } },
     { data: { source: 'IS5', target: 'O1' } },
-
-    // O2 <- IS1, IS2, A5
     { data: { source: 'IS1', target: 'O2' } },
     { data: { source: 'IS2', target: 'O2' } },
     { data: { source: 'A5', target: 'O2' } },
-
-    // O3 <- IS1, IS2, IS3
     { data: { source: 'IS1', target: 'O3' } },
     { data: { source: 'IS2', target: 'O3' } },
     { data: { source: 'IS3', target: 'O3' } }
 ];
 
 const cy = cytoscape({
-    container: document.getElementById('cy'), // The HTML element to render in
-    elements: graphElements, // Use the defined elements
+    container: document.getElementById('cy'),
+    elements: graphElements,
     style: [
         {
             selector: 'node',
@@ -94,7 +71,7 @@ const cy = cytoscape({
                 'text-outline-color': '#fff',
                 'text-outline-width': 1,
                 'color': '#333',
-                'transition-property': 'background-color',
+                'transition-property': 'background-color, color',
                 'transition-duration': '0.5s'
             }
         },
@@ -128,7 +105,7 @@ const cy = cytoscape({
             style: {
                 'width': 2,
                 'line-color': '#666',
-                'target-arrow-shape': 'triangle',
+                'target-arrow-shape W': 'triangle',
                 'target-arrow-color': '#666',
                 'curve-style': 'bezier'
             }
@@ -147,22 +124,47 @@ const cy = cytoscape({
 
 // --- Function to update node appearance based on probabilities ---
 function updateNodeProbabilities(probabilities) {
+    const useGradient = document.getElementById('gradient-toggle').checked;
+
     cy.nodes().forEach(node => {
         const nodeId = node.id();
         if (probabilities[nodeId] && probabilities[nodeId]["1"] !== undefined) {
             const probState1 = probabilities[nodeId]["1"];
             node.data('currentProbLabel', `P(1)=${probState1.toFixed(3)}`);
-            const color = `rgb(${Math.round(255 * probState1)}, ${Math.round(255 * (1 - probState1))}, 0)`;
-            node.style('background-color', color);
+
+            if (useGradient) {
+                // Reversed gradient: low prob -> red, high prob -> green
+                const color = `rgb(${Math.round(255 * (1 - probState1))}, ${Math.round(255 * probState1)}, 0)`;
+                node.style({
+                    'background-color': color,
+                    'color': '#333' // Default text color for gradient mode
+                });
+            } else {
+                // Clean coloring: dark purple background, white text
+                node.style({
+                    'background-color': '#4B0082', // Dark purple
+                    'color': '#FFFFFF' // White text
+                });
+            }
         } else {
             node.data('currentProbLabel', '(N/A)');
+            // Apply default colors based on node type
+            let bgColor, textColor = '#333';
             if (['A1', 'A2', 'A3', 'A4', 'A5', 'UI', 'H'].includes(nodeId)) {
-                node.style('background-color', '#add8e6');
+                bgColor = '#add8e6';
             } else if (['O1', 'O2', 'O3'].includes(nodeId)) {
-                node.style('background-color', '#90ee90');
+                bgColor = '#90ee90';
             } else {
-                node.style('background-color', '#ffb6c1');
+                bgColor = '#ffb6c1';
             }
+            if (!useGradient) {
+                bgColor = '#4B0082';
+                textColor = '#FFFFFF';
+            }
+            node.style({
+                'background-color': bgColor,
+                'color': textColor
+            });
         }
     });
 }
@@ -264,15 +266,25 @@ async function fetchAndUpdateLLM() {
     }
 }
 
-// --- Add event listener to the button ---
+// --- Add event listeners ---
 document.getElementById('update-button').addEventListener('click', fetchAndUpdateLLM);
+
+// Add listener for gradient toggle
+document.getElementById('gradient-toggle').addEventListener('change', () => {
+    // Re-run updateNodeProbabilities with current probabilities to apply new coloring
+    cy.nodes().forEach(node => {
+        const nodeId = node.id();
+        const prob = node.data('currentProbLabel') ? parseFloat(node.data('currentProbLabel').replace('P(1)=', '')) : null;
+        const probabilities = prob ? { [nodeId]: { "1": prob } } : {};
+        updateNodeProbabilities(probabilities);
+    });
+});
 
 // --- Initialize node appearance and layout on page load ---
 cy.ready(function() {
     console.log("Cytoscape instance is ready. Attempting to run initial layout.");
     let layoutSuccess = false;
 
-    // Try Cola layout first
     if (typeof window.cola !== 'undefined') {
         try {
             cy.layout({
@@ -294,7 +306,6 @@ cy.ready(function() {
         console.warn("Cola layout not available. Falling back to Dagre layout.");
     }
 
-    // Fallback to Dagre if Cola fails or is unavailable
     if (!layoutSuccess) {
         try {
             cy.layout({
@@ -312,7 +323,6 @@ cy.ready(function() {
         }
     }
 
-    // Apply initial styles/labels and context regardless of layout success
     try {
         updateNodeProbabilities({});
         console.log("Initial node probabilities set.");
