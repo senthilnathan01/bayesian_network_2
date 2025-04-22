@@ -1,0 +1,109 @@
+/* public/style.css */
+body {
+    font-family: sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center; /* Corrected typo */
+    margin: 0;
+    padding: 20px;
+    background-color: #f4f4f4;
+}
+
+h1, h2, h3 {
+    color: #333;
+}
+
+.controls {
+    margin-bottom: 20px;
+    padding: 20px;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    background-color: #fff;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    width: 90%;
+    max-width: 760px; /* Align with graph max-width */
+}
+
+.controls label {
+    display: inline-block;
+    width: 180px; /* Adjust as needed for labels */
+    margin-bottom: 8px;
+    font-weight: bold;
+    color: #555;
+}
+
+.controls input[type=number] {
+    width: 80px; /* Adjust as needed */
+    padding: 5px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+}
+
+.controls button {
+    display: block;
+    margin-top: 15px;
+    padding: 10px 20px;
+    background-color: #007bff;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 16px;
+    transition: background-color 0.3s ease;
+}
+
+.controls button:hover {
+    background-color: #0056b3;
+}
+
+.controls button:disabled {
+    background-color: #cccccc;
+    cursor: not-allowed;
+}
+
+
+#cy {
+    width: 90%;
+    max-width: 800px; /* Adjust as needed */
+    height: 700px;    /* Adjust as needed */
+    border: 1px solid #ccc;
+    background-color: #fff;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    display: block;
+    margin: 20px auto;
+}
+
+.llm-context {
+    margin-top: 30px;
+    padding: 20px;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    background-color: #fff;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    width: 90%;
+    max-width: 800px;
+    word-wrap: break-word; /* Prevent overflow */
+}
+
+.llm-context h3 {
+    margin-top: 15px;
+    margin-bottom: 10px;
+    color: #0056b3;
+}
+
+.llm-context h3:first-child {
+    margin-top: 0;
+}
+
+.llm-context p, .llm-context ul, .llm-context pre {
+    margin-bottom: 10px;
+    color: #333;
+    white-space: pre-wrap; /* Preserve formatting and wrap */
+}
+
+.llm-context pre {
+    background-color: #f0f0f0;
+    padding: 10px;
+    border-radius: 4px;
+    overflow-x: auto; /* Scroll for long lines in code blocks */
+}
