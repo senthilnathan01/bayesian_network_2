@@ -10,34 +10,24 @@
     <script src="https://unpkg.com/cola@4/cola.min.js"></script>
     <script src="https://unpkg.com/cytoscape-cola@2.5.1/cytoscape-cola.js"></script>
     <script>
-        // Register the cola layout extension with Cytoscape
-        // The cytoscape-cola.js script should expose a function (often named cytoscapeCola)
-        // that needs to be passed to cytoscape.use().
-        // Check the documentation if 'cytoscapeCola' is not the correct global variable name.
-        // Based on common patterns and the script name, it's likely cytoscapeCola or cola
-        // Let's try `cytoscapeCola` first. If that fails, try `cytoscape.use( window.cola );`
-        try {
-             cytoscape.use( cytoscapeCola );
-             console.log("Cytoscape Cola layout registered.");
-        } catch (e) {
-             console.error("Failed to register Cytoscape Cola layout:", e);
-             // Fallback attempt if 'cytoscapeCola' is not exposed or is named differently
-             // Some extensions might attach directly to the window object under a different name
-             try {
-                 if (window.cytoscape) {
-                     // Check if a cola function exists on window that looks like the extension
-                     if (typeof window.cola === 'function') {
-                          cytoscape.use( window.cola );
-                          console.log("Cytoscape Cola layout registered using window.cola.");
-                     } else {
-                         console.error("Cannot find Cytoscape Cola extension function on window.");
-                     }
-                 }
-             } catch(e2) {
-                 console.error("Secondary attempt to register Cola layout failed:", e2);
-             }
-        }
+        console.log("Attempting to register Cytoscape Cola layout...");
+        console.log("Checking for 'cytoscapeCola' global:", typeof window.cytoscapeCola);
+        console.log("Checking for 'cola' global:", typeof window.cola); // Note: cola.js itself also adds a 'cola' global
 
+        if (typeof cytoscapeCola === 'function') {
+            try {
+                 cytoscape.use( cytoscapeCola );
+                 console.log("SUCCESS: Registered Cytoscape Cola layout using 'cytoscapeCola'.");
+            } catch (e) {
+                 console.error("ERROR: Failed to register using 'cytoscapeCola':", e);
+            }
+        } else {
+            console.warn("'cytoscapeCola' function not found. Will rely on Cytoscape finding it automatically or manual registration if needed.");
+             // As a fallback, sometimes just including the script is enough if it self-registers,
+             // but explicit registration is usually required. Let's assume it might self-register
+             // and see if the error changes. If it still fails, the issue is likely elsehwere
+             // or the global name is different.
+        }
     </script>
 </head>
 <body>
