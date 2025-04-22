@@ -312,17 +312,51 @@ async function fetchAndUpdateLLM() {
 document.getElementById('update-button').addEventListener('click', fetchAndUpdateLLM);
 
 // --- Initialize node appearance and layout on page load ---
-// Use a timeout to ensure the container div is ready
-setTimeout(() => {
-    // Run initial layout
-    cy.layout({ name: 'cola', animate: true, ungrabifyWhileSimulating: false, nodeSpacing: 40, edgeLength: 150, padding: 20, randomize: false }).run();
-    // Then apply initial styles/labels (N/A)
-    updateNodeProbabilities({});
-     // Populate initial context section with loading state
-     displayLLMContext({
-        input_states: [{ node: 'Loading...', description: '', value: 0, state: '' }],
-        node_dependencies: { 'Loading...': [] },
-        qualitative_rules: [{ node: 'Loading...', description: '', qualitative: '' }],
-        node_descriptions: { 'Loading...': 'Loading...' }
-     });
-}, 100); // Small delay
+
+// Wait for Cytoscape to be ready before running the layout and initial updates
+cy.ready(function() {
+    console.log("Cytoscape instance is ready. Running initial layout.");
+    try {
+        // Run initial layout
+        cy.layout({
+            name: 'cola',
+            animate: true,
+            ungrabifyWhileSimulating: false,
+            nodeSpacing: 40,
+            edgeLength: 150,
+            padding: 20,
+            randomize: false // Keep layout consistent
+        }).run();
+        console.log("Initial Cola layout run initiated.");
+
+        // Apply initial styles/labels (N/A)
+        updateNodeProbabilities({});
+        console.log("Initial node probabilities set.");
+
+        // Populate initial context section with loading state
+        displayLLMContext({
+            input_states: [{ node: 'Loading...', description: '', value: 0, state: '' }],
+            node_dependencies: { 'Loading...': [] },
+            qualitative_rules: [{ node: 'Loading...', description: '', qualitative: '' }],
+            node_descriptions: { 'Loading...': 'Loading...' }
+        });
+         console.log("Initial LLM context placeholder set.");
+
+    } catch (layoutError) {
+        console.error("ERROR running initial Cola layout:", layoutError);
+        alert("Error initializing the graph layout. Check the console for details. Trying Dagre as fallback.");
+        // Fallback layout if cola fails
+        try {
+            // You might need to re-register dagre if it wasn't done earlier
+            // Assuming dagre is available (it was in your original code)
+            cy.layout({ name: 'dagre', rankDir: 'TB', spacingFactor: 1.2 }).run();
+            updateNodeProbabilities({});
+             displayLLMContext({ /* ... same placeholder ... */ });
+        } catch (fallbackError) {
+             console.error("ERROR running fallback Dagre layout:", fallbackError);
+             alert("Fallback layout also failed. Graph display might be broken.");
+        }
+    }
+});
+
+console.log("Initial script execution finished. Waiting for cy.ready().");
