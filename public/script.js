@@ -66,7 +66,7 @@ const cy = cytoscape({
                 'text-valign': 'center',
                 'text-halign': 'center',
                 'font-size': '10px',
-                'font-weight': '300', // Added to make font less thick (light)
+                'font-weight': '150', // Added to make font less thick (light)
                 'text-wrap': 'wrap',
                 'text-max-width': 110,
                 'text-outline-color': '#fff',
