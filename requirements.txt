@@ -1,0 +1,5 @@
+fastapi
+uvicorn[standard]
+openai>=1.0 # Use a modern version
+python-dotenv
+pydantic
