@@ -20,7 +20,7 @@ try:
     from dotenv import load_dotenv
     import redis
     from redis.connection import ConnectionPool
-    from vercel_blob import put as blob_put, head as blob_head, download as blob_download, delete as blob_delete
+    from vercel_blob import put as blob_put, head as blob_head, get as blob_get, delete as blob_delete
     print("--- DEBUG: Imported FastAPI, CORS, Pydantic, OpenAI, Redis, Vercel Blob ---", flush=True)
 
     app = FastAPI(title="Dynamic Bayesian Network API")
@@ -47,6 +47,7 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 openai_api_key = os.getenv("OPENAI_API_KEY")
 redis_url = os.getenv("UPSTASH_REDIS_URL") or os.getenv("REDIS_URL")
+vercel_blob_token = os.getenv("VERCEL_BLOB_TOKEN")
 
 # Redis Connection with Connection Pool
 redis_client = None
@@ -79,6 +80,8 @@ def reconnect_redis():
 
 if not openai_api_key:
     logger.warning("OPENAI_API_KEY environment variable not found.")
+if not vercel_blob_token:
+    logger.warning("VERCEL_BLOB_TOKEN environment variable not found. Blob storage may fail.")
 
 # Constants
 CONFIG_KEY_PREFIX = "bn_config:"
@@ -626,12 +629,12 @@ async def log_data_to_blob(log_entry: LogPayload):
         existing_content = b""
         if not needs_headers:
             try:
-                blob_response = await blob_download(pathname=log_filename)
+                blob_response = await blob_get(pathname=log_filename)
                 existing_content = await blob_response.read()
                 if existing_content.endswith(b'\n'):
                     existing_content = existing_content[:-1]
             except Exception as e:
-                logger.warning(f"Could not download {log_filename}: {e}")
+                logger.warning(f"Could not retrieve {log_filename}: {e}")
                 needs_headers = True
                 existing_content = b""
 
@@ -649,7 +652,7 @@ async def log_data_to_blob(log_entry: LogPayload):
         await blob_put(
             pathname=log_filename,
             body=final_csv_content,
-            options={'addRandomSuffix': False, 'contentType': 'text/csv'}
+            options={'add_random_suffix': False, 'content_type': 'text/csv'}
         )
         logger.info(f"Appended {len(new_rows)} entries to {log_filename}")
     except Exception as e:
@@ -666,7 +669,7 @@ async def download_log_file(config_id: str):
     logger.info(f"Downloading log: {log_filename}")
 
     try:
-        blob_response = await blob_download(pathname=log_filename, options={'stream': True})
+        blob_response = await blob_get(pathname=log_filename)
         safe_filename_part = config_id_with_prefix.replace(CONFIG_KEY_PREFIX, "")
         download_filename = f"log_{safe_filename_part}.csv"
         return StreamingResponse(
