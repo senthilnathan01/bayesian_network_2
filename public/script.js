@@ -18,13 +18,13 @@ document.addEventListener('DOMContentLoaded', async () => {
             selectConfigInDropdown(defaultGraphStructure.id);
             setStatusMessage('config-status', "Default config loaded.", "success");
         } else {
-            setStatusMessage('config-status', "Could not load default config.", "error");
+            setStatusMessage('config-status', "Could not load default config. Please try again or contact support.", "error");
             updateInputControls([]);
             document.getElementById('current-config-name').textContent = "None";
         }
     } catch (error) {
         console.error("Error loading default config:", error);
-        setStatusMessage('config-status', `Failed to load default: ${error.message}`, "error");
+        setStatusMessage('config-status', `Failed to load default config: ${error.message}. Check server status.`, "error");
         updateInputControls([]);
         document.getElementById('current-config-name').textContent = "None";
     }
@@ -35,7 +35,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         setStatusMessage('config-status', currentConfig ? `Config '${currentConfig.name}' loaded.` : "Ready. Select or save a config.", "success");
     } catch (error) {
         console.error("Error loading saved configs:", error);
-        setStatusMessage('config-status', `Failed to load saved configs: ${error.message}`, "error");
+        setStatusMessage('config-status', `Failed to load saved configs: ${error.message}. Check server status.`, "error");
     } finally {
         showSpinner(false);
     }
@@ -51,7 +51,7 @@ function initializeCytoscape() {
         container: document.getElementById('cy'),
         elements: [],
         style: [
-            { selector: 'node', style: { 'background-color': '#ccc', 'label': nodeLabelFunc, 'width': 120, 'height': 120, 'shape': 'ellipse', 'text-valign': 'center', 'text-halign': 'center', 'font-size': '10px', 'font-weight': '150', 'text-wrap': 'wrap', 'text-max-width': 110, 'text-outline-color': '#fff', 'text-outline-width': 1, 'color': '#333', 'transition-property': 'background-color, color', 'transition-duration': '0.5s' } },
+            { selector: 'node', style: { 'background-color': '#ccc', 'label': nodeLabelFunc, 'width': 120, 'height': 120, 'shape': 'ellipse', 'text-valign': 'center', 'text-halign': 'center', 'font-size': '10px', 'font-weight': '100', 'text-wrap': 'wrap', 'text-max-width': 110, 'text-outline-color': '#fff', 'text-outline-width': 1, 'color': '#333', 'transition-property': 'background-color, color', 'transition-duration': '0.5s' } },
             { selector: 'node[nodeType="input"]', style: { 'shape': 'rectangle', 'width': 130, 'height': 70 } },
             { selector: 'node[nodeType="hidden"]', style: { 'shape': 'ellipse' } },
             { selector: 'edge', style: { 'width': 2, 'line-color': '#666', 'target-arrow-shape': 'triangle', 'target-arrow-color': '#666', 'curve-style': 'bezier' } }
