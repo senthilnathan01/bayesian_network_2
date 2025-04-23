@@ -1,5 +1,6 @@
 fastapi
 uvicorn[standard]
-openai>=1.0 # Use a modern version
+openai>=1.0
 python-dotenv
 pydantic
+vercel-kv>=0.2.0 # Add Vercel KV client
