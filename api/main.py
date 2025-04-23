@@ -15,7 +15,8 @@ try:
     from pydantic import BaseModel, Field
     import openai
     from dotenv import load_dotenv
-    from vercel_kv import kv # Import Vercel KV client
+    # --- CHANGE 1: Correct import name ---
+    from vercel_kv import KV # Import the KV class (uppercase)
     print("--- DEBUG: Imported FastAPI, CORS, Pydantic, OpenAI, Vercel KV ---", flush=True)
 
     app = FastAPI()
@@ -33,39 +34,40 @@ try:
 
 except Exception as e:
     print(f"--- DEBUG: ERROR during core imports: {e} ---", flush=True)
-    # If basic imports fail, the app can't run
     raise e
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, stream=sys.stdout)
 logger = logging.getLogger(__name__)
 
-# Load environment variables (OPENAI_API_KEY, KV_URL, KV_REST_API_URL, KV_REST_API_TOKEN, KV_REST_API_READ_ONLY_TOKEN)
+# Load environment variables
 load_dotenv()
 openai_api_key = os.getenv("OPENAI_API_KEY")
 
 if not openai_api_key:
     logger.warning("OPENAI_API_KEY environment variable not found.")
+
+# --- CHANGE 2: Instantiate the KV client ---
 # Vercel KV automatically uses env vars if available
+kv_client = KV()
+print("--- DEBUG: Vercel KV client instantiated ---", flush=True)
 
-# --- Pydantic Models ---
 
+# --- Pydantic Models (Unchanged) ---
 class NodeData(BaseModel):
     id: str
     fullName: str = Field(..., description="User-friendly name for the node")
-    nodeType: str = Field(..., description="Type of node: 'input', 'hidden'") # Removed 'output'
+    nodeType: str = Field(..., description="Type of node: 'input', 'hidden'")
 
 class EdgeData(BaseModel):
     source: str
     target: str
-    # id: Optional[str] = None # Cytoscape might add its own
 
 class GraphStructure(BaseModel):
     nodes: List[NodeData]
     edges: List[EdgeData]
 
 class ContinuousUserInput(BaseModel):
-    # Input values are now dynamic, sent as a dict
     input_values: Dict[str, float]
 
 class PredictionPayload(ContinuousUserInput):
@@ -75,8 +77,7 @@ class SaveConfigPayload(BaseModel):
     config_name: str = Field(..., description="User-provided name for the configuration")
     graph_structure: GraphStructure
 
-# --- Helper Functions ---
-
+# --- Helper Functions (Unchanged) ---
 def get_dynamic_node_info(graph: GraphStructure):
     """ Parses graph structure to get node info needed for LLM prompt """
     node_parents = {node.id: [] for node in graph.nodes}
@@ -171,7 +172,7 @@ def call_openai_dynamic_bn(
                 {"role": "user", "content": user_message}
             ],
             response_format={"type": "json_object"},
-            max_tokens=1500, # Increased slightly for potentially larger dynamic graphs
+            max_tokens=1500,
             temperature=0.1,
             n=1
         )
@@ -229,14 +230,15 @@ CONFIG_KEY_PREFIX = "bn_config:"
 @app.post("/api/configs")
 async def save_configuration(payload: SaveConfigPayload):
     """ Saves a graph configuration to Vercel KV """
-    config_id = f"{CONFIG_KEY_PREFIX}{uuid4()}" # Generate unique ID
+    config_id = f"{CONFIG_KEY_PREFIX}{uuid4()}"
     config_data = {
         "id": config_id,
         "name": payload.config_name,
         "graph_structure": payload.graph_structure.dict()
     }
     try:
-        kv.set(config_id, json.dumps(config_data))
+        # --- CHANGE 3: Use instantiated client ---
+        await kv_client.set(config_id, json.dumps(config_data))
         logger.info(f"Saved configuration '{payload.config_name}' with ID: {config_id}")
         return {"message": "Configuration saved successfully", "config_id": config_id, "config_name": payload.config_name}
     except Exception as e:
@@ -247,18 +249,23 @@ async def save_configuration(payload: SaveConfigPayload):
 async def list_configurations():
     """ Lists saved graph configurations from Vercel KV """
     try:
-        # Fetch all keys matching the prefix
-        config_keys = [key async for key in kv.scan_iter(match=f"{CONFIG_KEY_PREFIX}*")]
+        # --- CHANGE 4: Use instantiated client ---
+        # Note: kv.scan_iter returns an async generator, handle appropriately
+        config_keys = [key async for key in kv_client.scan_iter(match=f"{CONFIG_KEY_PREFIX}*")]
         configs_summary = []
         for key in config_keys:
             try:
-                config_json = await kv.get(key)
+                # --- CHANGE 5: Use instantiated client ---
+                config_json = await kv_client.get(key)
                 if config_json:
+                    # Assuming the stored value is already a JSON string
                     config_data = json.loads(config_json)
                     configs_summary.append({
-                        "id": config_data.get("id", key), # Use stored ID if available
+                        "id": config_data.get("id", key),
                         "name": config_data.get("name", "Unnamed Config")
                     })
+                else:
+                    logger.warning(f"Key {key} returned None from KV store.")
             except Exception as e:
                 logger.warning(f"Failed to parse config data for key {key}: {e}")
                 configs_summary.append({"id": key, "name": "Error loading name"})
@@ -272,28 +279,32 @@ async def list_configurations():
 @app.get("/api/configs/{config_id}")
 async def load_configuration(config_id: str):
     """ Loads a specific graph configuration from Vercel KV """
-    # Basic validation to ensure the key looks right
+    effective_config_id = config_id
     if not config_id.startswith(CONFIG_KEY_PREFIX):
-        config_id = f"{CONFIG_KEY_PREFIX}{config_id}" # Add prefix if missing (simple fix)
+        effective_config_id = f"{CONFIG_KEY_PREFIX}{config_id}"
+        logger.info(f"Provided config_id '{config_id}' did not have prefix, using '{effective_config_id}'")
 
     try:
-        config_json = await kv.get(config_id)
+        # --- CHANGE 6: Use instantiated client ---
+        config_json = await kv_client.get(effective_config_id)
         if config_json is None:
+            logger.error(f"Configuration ID '{effective_config_id}' not found in KV store.")
             raise HTTPException(status_code=404, detail=f"Configuration ID '{config_id}' not found.")
 
-        config_data = json.loads(config_json)
-        logger.info(f"Loaded configuration with ID: {config_id}")
-        # Return the full config data including graph structure
+        config_data = json.loads(config_json) # Assuming stored as JSON string
+        logger.info(f"Loaded configuration with ID: {effective_config_id}")
         return config_data
     except HTTPException as e:
         raise e
+    except json.JSONDecodeError as e:
+        logger.error(f"Error decoding JSON for configuration '{effective_config_id}': {e}. Data: {config_json}")
+        raise HTTPException(status_code=500, detail=f"Failed to parse configuration data: {e}")
     except Exception as e:
-        logger.error(f"Error loading configuration '{config_id}' from Vercel KV: {e}", exc_info=True)
+        logger.error(f"Error loading configuration '{effective_config_id}' from Vercel KV: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to load configuration: {e}")
 
 
-# --- Prediction Endpoint (Modified) ---
-
+# --- Prediction Endpoint (Modified - No changes needed here, uses helper) ---
 @app.post("/api/predict_openai_bn_single_call")
 async def predict_openai_bn_single_call(payload: PredictionPayload):
     """
@@ -301,18 +312,11 @@ async def predict_openai_bn_single_call(payload: PredictionPayload):
     probabilities estimated by the LLM.
     """
     logger.info("Entered /api/predict_openai_bn_single_call (dynamic) function.")
-
     try:
         input_probs_dict = payload.input_values
         graph_structure = payload.graph_structure
-
-        # Parse dynamic structure
         node_parents, node_descriptions, node_types, all_nodes, target_nodes, input_nodes, relationship_descriptions = get_dynamic_node_info(graph_structure)
-
-        # Call LLM for target node probabilities
         estimated_target_probs = call_openai_dynamic_bn(input_probs_dict, graph_structure)
-
-        # Combine input probabilities and estimated probabilities
         all_current_probabilities = {**input_probs_dict, **estimated_target_probs}
 
         final_result = {}
@@ -323,13 +327,11 @@ async def predict_openai_bn_single_call(payload: PredictionPayload):
                 p1_clamped = max(0.0, min(1.0, p1))
                 final_result[node] = {"0": 1.0 - p1_clamped, "1": p1_clamped, "description": node_desc}
             else:
-                # Should only happen if target node estimation failed and defaulted
                 logger.warning(f"Node {node} not found in final probability dictionary - using default.")
                 final_result[node] = {"0": 0.5, "1": 0.5, "description": node_desc}
 
         logger.info("Successfully generated prediction using dynamic graph.")
 
-        # Prepare context to return (based on dynamic graph)
         input_descriptions_list = []
         for node, value in input_probs_dict.items():
              if node in input_nodes:
@@ -339,12 +341,15 @@ async def predict_openai_bn_single_call(payload: PredictionPayload):
                      "value": value, "state": state_desc })
 
         qualitative_rules_list = []
-        for i in range(0, len(relationship_descriptions), 2): # Assuming pairs of influence + qualitative rule
-            node_id = target_nodes[i//2] # Approximate mapping, might need refinement
-            desc = relationship_descriptions[i]
-            qual = relationship_descriptions[i+1] if (i+1) < len(relationship_descriptions) else ""
-            qualitative_rules_list.append({"node": node_id, "description": desc, "qualitative": qual.strip()})
-
+        processed_nodes = set() # Track nodes added to avoid duplicates if rules aren't paired perfectly
+        for i in range(len(target_nodes)):
+            node_id = target_nodes[i]
+            if node_id not in processed_nodes:
+                 # Try to find matching descriptions - this mapping logic might be fragile
+                 desc = next((rd for rd in relationship_descriptions if rd.startswith(f"- {node_id}")), f"- {node_id} influence description missing.")
+                 qual = next((rd for rd in relationship_descriptions if rd.strip().startswith("Qualitative:") and node_id in rd), "  Qualitative rule missing or generic.")
+                 qualitative_rules_list.append({"node": node_id, "description": desc, "qualitative": qual.strip()})
+                 processed_nodes.add(node_id)
 
         return {
             "probabilities": final_result,
