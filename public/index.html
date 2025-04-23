@@ -3,64 +3,51 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LLM Bayesian Network Visualization</title>
+    <title>Dynamic LLM Bayesian Network</title>
     <link rel="stylesheet" href="style.css">
     <script src="https://unpkg.com/cytoscape@3.23.0/dist/cytoscape.min.js"></script>
-    <!-- Explicitly load cola.js first with a specific version -->
     <script src="https://cdn.jsdelivr.net/npm/webcola@3.4.0/WebCola/cola.min.js"></script>
-    <!-- Load cytoscape-cola after cola.js -->
     <script src="https://unpkg.com/cytoscape-cola@2.5.1/cytoscape-cola.js"></script>
-    <!-- Load cytoscape-dagre as a fallback -->
     <script src="https://unpkg.com/cytoscape-dagre@2.5.0/cytoscape-dagre.js"></script>
+    <!-- PapaParse for client-side CSV generation -->
+    <script src="https://unpkg.com/papaparse@5.3.2/papaparse.min.js"></script>
+
     <script>
+        // Layout registration (unchanged)
         console.log("Attempting to register Cytoscape Cola layout...");
-        console.log("Checking for 'cola' global:", typeof window.cola);
-        console.log("Checking for 'cytoscapeCola' global:", typeof window.cytoscapeCola);
-
         if (typeof window.cola !== 'undefined' && typeof window.cytoscapeCola === 'function') {
-            try {
-                cytoscape.use(cytoscapeCola);
-                console.log("SUCCESS: Registered Cytoscape Cola layout.");
-            } catch (e) {
-                console.error("ERROR: Failed to register Cytoscape Cola layout:", e);
-            }
-        } else {
-            console.warn("Cola or cytoscapeCola not available. Will attempt to use dagre layout as fallback.");
-        }
-
-        // Register dagre layout as a fallback
+            try { cytoscape.use(cytoscapeCola); console.log("SUCCESS: Registered Cytoscape Cola layout."); }
+            catch (e) { console.error("ERROR: Failed to register Cytoscape Cola layout:", e); }
+        } else { console.warn("Cola or cytoscapeCola not available. Will attempt dagre."); }
         if (typeof window.cytoscapeDagre === 'function') {
-            try {
-                cytoscape.use(cytoscapeDagre);
-                console.log("SUCCESS: Registered Cytoscape Dagre layout as fallback.");
-            } catch (e) {
-                console.error("ERROR: Failed to register Cytoscape Dagre layout:", e);
-            }
-        } else {
-            console.warn("Cytoscape Dagre not available. Graph layout may fail.");
-        }
+            try { cytoscape.use(cytoscapeDagre); console.log("SUCCESS: Registered Cytoscape Dagre layout."); }
+            catch (e) { console.error("ERROR: Failed to register Cytoscape Dagre layout:", e); }
+        } else { console.warn("Cytoscape Dagre not available."); }
     </script>
 </head>
 <body>
-    <h1>LLM-Powered Cognitive Network Simulation</h1>
+    <h1>Dynamic LLM-Powered Cognitive Network</h1>
+
+    <div class="config-manager">
+        <h2>Configuration Management</h2>
+        <label for="config-name">Config Name:</label>
+        <input type="text" id="config-name" placeholder="Enter name to save">
+        <button id="save-config-button">Save Current Config</button>
+        <br>
+        <label for="load-config-select">Load Config:</label>
+        <select id="load-config-select">
+            <option value="">-- Select a config --</option>
+        </select>
+        <button id="load-config-button">Load Selected Config</button>
+        <p id="config-status"></p>
+    </div>
 
     <div class="controls">
         <h2>Inputs (Probabilities 0.0 - 1.0)</h2>
-        <label for="input-A1">A1 (Domain Expertise):</label>
-        <input type="number" id="input-A1" name="A1" min="0" max="1" step="0.01" value="0.5"><br>
-        <label for="input-A2">A2 (Web Literacy):</label>
-        <input type="number" id="input-A2" name="A2" min="0" max="1" step="0.01" value="0.5"><br>
-        <label for="input-A3">A3 (Task Familiarity):</label>
-        <input type="number" id="input-A3" name="A3" min="0" max="1" step="0.01" value="0.5"><br>
-        <label for="input-A4">A4 (Goal Clarity):</label>
-        <input type="number" id="input-A4" name="A4" min="0" max="1" step="0.01" value="0.5"><br>
-        <label for="input-A5">A5 (Motivation):</label>
-        <input type="number" id="input-A5" name="A5" min="0" max="1" step="0.01" value="0.5"><br>
-        <label for="input-UI">UI (UI State):</label>
-        <input type="number" id="input-UI" name="UI" min="0" max="1" step="0.01" value="0.5"><br>
-        <label for="input-H">H (History):</label>
-        <input type="number" id="input-H" name="H" min="0" max="1" step="0.01" value="0.5"><br>
-        <!-- Added toggle switch for gradient coloring -->
+        <div id="input-controls-container">
+            <!-- Input controls will be generated dynamically here -->
+            <p>Load a configuration or define a graph to see inputs.</p>
+        </div>
         <label for="gradient-toggle">Enable Gradient Coloring:</label>
         <input type="checkbox" id="gradient-toggle" checked><br>
         <button id="update-button">Update Probabilities</button>
@@ -68,27 +55,40 @@
 
     <div id="cy"></div>
 
+    <div class="logging-controls">
+      <h2>Session Logging</h2>
+       <p>Current Config: <strong id="current-config-name">None</strong></p>
+      <button id="download-session-log-button">Download Current Session Log (CSV)</button>
+      <p id="log-count">Log entries this session: 0</p>
+    </div>
+
     <div class="llm-context">
         <h2>LLM Context (Provided to the Model)</h2>
         <div id="input-context">
             <h3>Input States Provided:</h3>
-            <p>Gathering inputs...</p>
+            <p>Run prediction to see context.</p>
         </div>
         <div id="structure-context">
             <h3>Node Dependencies (DAG):</h3>
-            <p>Loading structure...</p>
+            <p>Run prediction to see context.</p>
         </div>
         <div id="rules-context">
             <h3>Qualitative Rules Provided:</h3>
-            <p>Loading rules...</p>
+            <p>Run prediction to see context.</p>
         </div>
         <div id="node-descriptions-context">
             <h3>Node Descriptions:</h3>
-            <p>Loading descriptions...</p>
+            <p>Run prediction to see context.</p>
         </div>
     </div>
 
+     <!-- Placeholder for Graph Editing UI (Requirement 1 - Deferred) -->
+    <div class="graph-editor-placeholder">
+        <h2>Graph Editor (Future Feature)</h2>
+        <p>Functionality to add/remove nodes and edges directly in the UI will be added later.</p>
+        <p>Currently, define graphs by modifying and saving configurations, or load existing ones.</p>
+        </div>
+
     <script src="script.js"></script>
-<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'934809ffced4adc6',t:'MTc0NTM1NTUwNC4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script>
 </body>
 </html>
