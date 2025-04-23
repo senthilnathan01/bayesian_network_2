@@ -3,4 +3,4 @@ uvicorn[standard]
 openai>=1.0
 python-dotenv
 pydantic
-vercel-kv==0.2.0
+vercel-kv==0.1.5 
