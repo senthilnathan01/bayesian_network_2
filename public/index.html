@@ -1,80 +1,80 @@
 <!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dynamic LLM Bayesian Network</title>
-    <link rel="stylesheet" href="style.css">
-    <script src="https://cdn.jsdelivr.net/npm/cytoscape@3.23.0/dist/cytoscape.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/webcola@3.4.0/WebCola/cola.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/cytoscape-cola@2.5.1/cytoscape-cola.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/cytoscape-dagre@2.5.0/cytoscape-dagre.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.3.2/papaparse.min.js"></script>
-    <script src="https://unpkg.com/cytoscape-context-menus@2.1.0/cytoscape-context-menus.min.js"></script>
-    <script>
-        console.log("Registering layouts...");
-        try { if (window.cola && window.cytoscapeCola) cytoscape.use(cytoscapeCola); } catch (e) { console.warn("Cola failed", e); }
-        try { if (window.cytoscapeDagre) cytoscape.use(cytoscapeDagre); } catch (e) { console.warn("Dagre failed", e); }
-        try { if (window.cytoscapeContextMenus) cytoscape.use(cytoscapeContextMenus); } catch (e) { console.warn("Context Menus failed", e); }
-    </script>
-</head>
-<body>
-    <div class="container">
-        <header>
-            <h1>Dynamic LLM Bayesian Network</h1>
-        </header>
-        <main>
-            <div class="graph-editor">
-                <h2>Graph Editor</h2>
-                <p>Right-click nodes or canvas to add/remove nodes and edges.</p>
-                <div id="cy"></div>
-            </div>
-            <div class="config-section">
-                <h2>Configuration</h2>
-                <div class="config-controls">
-                    <label for="config-name">Save As:</label>
-                    <input type="text" id="config-name" placeholder="Configuration name">
-                    <button id="save-config-button">Save</button>
-                    <label for="load-config-select">Load Config:</label>
-                    <select id="load-config-select">
-                        <option value="">Select a configuration</option>
-                    </select>
-                    <button id="load-config-button">Load</button>
-                    <button id="set-default-button">Set as Default</button>
-                    <button id="delete-config-button">Delete</button>
-                </div>
-                <p>Current Config: <span id="current-config-name">None</span></p>
-                <p id="config-status" class="status">Ready.</p>
-            </div>
-            <div class="input-section">
-                <h2>Inputs</h2>
-                <div id="input-controls-container">
-                    <p>No input nodes defined.</p>
-                </div>
-                <label for="gradient-toggle">Use Gradient Colors:</label>
-                <input type="checkbox" id="gradient-toggle" checked>
-                <button id="update-button">Update Probabilities</button>
-                <p id="predict-status" class="status">Enter inputs and click Update.</p>
-            </div>
-            <div class="output-section">
-                <h2>LLM Reasoning</h2>
-                <div id="llm-reasoning-content">Run prediction to see LLM reasonings.</div>
-                <h3>Input Context</h3>
-                <div id="input-context"><p>Run prediction to see context.</p></div>
-                <h3>Structure Context</h3>
-                <div id="structure-context"><p>Run prediction to see context.</p></div>
-                <h3>Node Descriptions</h3>
-                <div id="node-descriptions-context"><p>Run prediction to see context.</p></div>
-            </div>
-            <div class="log-section">
-                <h2>Session Log</h2>
-                <p id="log-count">Log entries this session: 0</p>
-                <button id="download-session-log-button">Download Session Log</button>
-                <button id="download-all-log-button">Download All Logs</button>
-            </div>
-        </main>
-        <div id="loading-spinner" class="spinner hidden"></div>
-    </div>
-    <script src="script.js"></script>
-</body>
-</html>
+     <html lang="en">
+     <head>
+         <meta charset="UTF-8">
+         <meta name="viewport" content="width=device-width, initial-scale=1.0">
+         <title>Dynamic LLM Bayesian Network</title>
+         <link rel="stylesheet" href="style.css">
+         <script src="https://cdn.jsdelivr.net/npm/cytoscape@3.23.0/dist/cytoscape.min.js"></script>
+         <script src="https://cdn.jsdelivr.net/npm/webcola@3.4.0/WebCola/cola.min.js"></script>
+         <script src="https://cdn.jsdelivr.net/npm/cytoscape-cola@2.5.1/cytoscape-cola.js"></script>
+         <script src="https://cdn.jsdelivr.net/npm/cytoscape-dagre@2.5.0/cytoscape-dagre.js"></script>
+         <script src="https://cdn.jsdelivr.net/npm/papaparse@5.3.2/papaparse.min.js"></script>
+         <script src="https://cdn.jsdelivr.net/npm/cytoscape-context-menus@2.1.0/cytoscape-context-menus.min.js"></script>
+         <script>
+             console.log("Registering layouts...");
+             try { if (window.cola && window.cytoscapeCola) cytoscape.use(cytoscapeCola); } catch (e) { console.warn("Cola failed", e); }
+             try { if (window.cytoscapeDagre) cytoscape.use(cytoscapeDagre); } catch (e) { console.warn("Dagre failed", e); }
+             try { if (window.cytoscapeContextMenus) cytoscape.use(cytoscapeContextMenus); } catch (e) { console.warn("Context Menus failed", e); }
+         </script>
+     </head>
+     <body>
+         <div class="container">
+             <header>
+                 <h1>Dynamic LLM Bayesian Network</h1>
+             </header>
+             <main>
+                 <div class="graph-editor">
+                     <h2>Graph Editor</h2>
+                     <p>Right-click nodes or canvas to add/remove nodes and edges.</p>
+                     <div id="cy"></div>
+                 </div>
+                 <div class="config-section">
+                     <h2>Configuration</h2>
+                     <div class="config-controls">
+                         <label for="config-name">Save As:</label>
+                         <input type="text" id="config-name" placeholder="Configuration name">
+                         <button id="save-config-button">Save</button>
+                         <label for="load-config-select">Load Config:</label>
+                         <select id="load-config-select">
+                             <option value="">Select a configuration</option>
+                         </select>
+                         <button id="load-config-button">Load</button>
+                         <button id="set-default-button">Set as Default</button>
+                         <button id="delete-config-button">Delete</button>
+                     </div>
+                     <p>Current Config: <span id="current-config-name">None</span></p>
+                     <p id="config-status" class="status">Ready.</p>
+                 </div>
+                 <div class="input-section">
+                     <h2>Inputs</h2>
+                     <div id="input-controls-container">
+                         <p>No input nodes defined.</p>
+                     </div>
+                     <label for="gradient-toggle">Use Gradient Colors:</label>
+                     <input type="checkbox" id="gradient-toggle" checked>
+                     <button id="update-button">Update Probabilities</button>
+                     <p id="predict-status" class="status">Enter inputs and click Update.</p>
+                 </div>
+                 <div class="output-section">
+                     <h2>LLM Reasoning</h2>
+                     <div id="llm-reasoning-content">Run prediction to see LLM reasonings.</div>
+                     <h3>Input Context</h3>
+                     <div id="input-context"><p>Run prediction to see context.</p></div>
+                     <h3>Structure Context</h3>
+                     <div id="structure-context"><p>Run prediction to see context.</p></div>
+                     <h3>Node Descriptions</h3>
+                     <div id="node-descriptions-context"><p>Run prediction to see context.</p></div>
+                 </div>
+                 <div class="log-section">
+                     <h2>Session Log</h2>
+                     <p id="log-count">Log entries this session: 0</p>
+                     <button id="download-session-log-button">Download Session Log</button>
+                     <button id="download-all-log-button">Download All Logs</button>
+                 </div>
+             </main>
+             <div id="loading-spinner" class="spinner hidden"></div>
+         </div>
+         <script src="script.js"></script>
+     </body>
+     </html>
