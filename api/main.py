@@ -1,176 +1,156 @@
-# --- api/main.py (Single Call OpenAI GPT-4o Approach) ---
 import sys
+import os
+import json
+import logging
+from typing import Dict, Any, List, Optional
+from uuid import uuid4
+
 print("--- DEBUG: api/main.py TOP LEVEL EXECUTION ---", flush=True)
-# Print Python version and path just in case
 print(f"--- DEBUG: Python Version: {sys.version} ---", flush=True)
 print(f"--- DEBUG: Python Path: {sys.path} ---", flush=True)
 
 try:
-    from fastapi import FastAPI, HTTPException
-    from fastapi.middleware.cors import CORSMiddleware # Added CORS
-    print("--- DEBUG: Imported FastAPI and CORS ---", flush=True)
+    from fastapi import FastAPI, HTTPException, Body
+    from fastapi.middleware.cors import CORSMiddleware
+    from pydantic import BaseModel, Field
+    import openai
+    from dotenv import load_dotenv
+    from vercel_kv import kv # Import Vercel KV client
+    print("--- DEBUG: Imported FastAPI, CORS, Pydantic, OpenAI, Vercel KV ---", flush=True)
+
     app = FastAPI()
     print("--- DEBUG: FastAPI app created ---", flush=True)
 
-    # Allow CORS for frontend development (adjust origins as needed for production)
+    # Allow CORS
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"], # Allow all origins for simplicity during dev/demo
+        allow_origins=["*"],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
     print("--- DEBUG: CORS middleware added ---", flush=True)
 
-
-    @app.get("/api/ping")
-    def ping():
-        print("--- DEBUG: /api/ping called ---", flush=True)
-        return {"message": "pong"}
-
-    print("--- DEBUG: Defined /api/ping ---", flush=True)
-
 except Exception as e:
-    print(f"--- DEBUG: ERROR during setup: {e} ---", flush=True)
-    # This will likely make the app fail to start, which is intended if core imports fail
-    # raise e # Re-raising might prevent helpful Vercel diagnostics? Let's keep it print for now.
-
-from pydantic import BaseModel
-import os
-import openai
-import logging
-from dotenv import load_dotenv
-from typing import Dict, Any, List
-import json
-import time
-
-print("DEBUG: Starting api/main.py execution...", flush=True)
-logging.info("DEBUG: Logging configured.")
-
-# Load environment variables (for API keys)
-# Assuming .env is in the root or the directory Vercel executes from for the lambda
-load_dotenv()
-
-# Set OpenAI API Key from environment variable
-openai_api_key = os.getenv("OPENAI_API_KEY")
-
-print(f"DEBUG: OpenAI Key loaded: {'Yes' if openai_api_key else 'NO - MISSING!'}", flush=True)
-
-if not openai_api_key:
-    print("Warning: OPENAI_API_KEY environment variable not found.", flush=True)
-    # In a real app, you might want to raise an error here to prevent deployment without key
-    # or handle it gracefully in the endpoint.
+    print(f"--- DEBUG: ERROR during core imports: {e} ---", flush=True)
+    # If basic imports fail, the app can't run
+    raise e
 
 # Configure logging
-logging.basicConfig(level=logging.INFO, stream=sys.stdout) # Log to stdout for Vercel
+logging.basicConfig(level=logging.INFO, stream=sys.stdout)
 logger = logging.getLogger(__name__)
 
-# Define Bayesian Network structure (Directed Acyclic Graph)
-# Node: List of Parents
-NODE_PARENTS = {
-    "A1": [], "A2": [], "A3": [], "A4": [], "A5": [], "UI": [], "H": [],
-    "IS3": ["A1", "A3", "A4", "H"], # Task Understanding
-    "IS4": ["A2", "UI", "H"],       # Interaction Fluency
-    "IS5": ["A1", "A3", "IS3"],     # Relevant Knowledge Activation
-    "IS2": ["IS4", "IS3"],         # Cognitive Load
-    "IS1": ["A5", "IS2", "IS3", "IS4", "IS5"], # Confidence
-    "O1": ["IS1", "IS2", "IS3", "IS5"], # Predicted Success Prob
-    "O2": ["IS1", "IS2", "A5"],     # Action Speed/Efficiency
-    "O3": ["IS1", "IS2", "IS3"]     # Help Seeking Likelihood
-}
+# Load environment variables (OPENAI_API_KEY, KV_URL, KV_REST_API_URL, KV_REST_API_TOKEN, KV_REST_API_READ_ONLY_TOKEN)
+load_dotenv()
+openai_api_key = os.getenv("OPENAI_API_KEY")
 
-# List all nodes
-ALL_NODES = list(NODE_PARENTS.keys())
-# Nodes for which LLM estimates probabilities (those with parents)
-TARGET_NODES = [node for node, parents in NODE_PARENTS.items() if parents]
-# Input nodes (those with no parents)
-INPUT_NODES = [node for node, parents in NODE_PARENTS.items() if not parents]
+if not openai_api_key:
+    logger.warning("OPENAI_API_KEY environment variable not found.")
+# Vercel KV automatically uses env vars if available
 
+# --- Pydantic Models ---
 
-# Define Node Descriptions for the prompt and UI
-NODE_DESCRIPTIONS = {
-    "A1": "Domain Expertise",
-    "A2": "Web Literacy",
-    "A3": "Task Familiarity",
-    "A4": "Goal Clarity",
-    "A5": "Motivation",
-    "UI": "UI State (Quality/Clarity)",
-    "H": "History (Relevant past interactions - positive/negative)",
-    "IS1": "Confidence",
-    "IS2": "Cognitive Load",
-    "IS3": "Task Understanding",
-    "IS4": "Interaction Fluency",
-    "IS5": "Relevant Knowledge Activation",
-    "O1": "Predicted Success Probability",
-    "O2": "Action Speed/Efficiency",
-    "O3": "Help Seeking Likelihood"
-}
+class NodeData(BaseModel):
+    id: str
+    fullName: str = Field(..., description="User-friendly name for the node")
+    nodeType: str = Field(..., description="Type of node: 'input', 'hidden'") # Removed 'output'
 
+class EdgeData(BaseModel):
+    source: str
+    target: str
+    # id: Optional[str] = None # Cytoscape might add its own
+
+class GraphStructure(BaseModel):
+    nodes: List[NodeData]
+    edges: List[EdgeData]
 
 class ContinuousUserInput(BaseModel):
-    A1: float
-    A2: float
-    A3: float
-    A4: float
-    A5: float
-    UI: float
-    H: float
+    # Input values are now dynamic, sent as a dict
+    input_values: Dict[str, float]
 
-def call_openai_for_full_bn(input_states: Dict[str, float]) -> Dict[str, float]:
-    """
-    Calls OpenAI API once to estimate probabilities for all target nodes.
-    Returns estimated probabilities for TARGET_NODES.
-    """
-    if not openai_api_key:
-        logger.error("OpenAI API Key not configured during call.")
-        raise HTTPException(status_code=500, detail="OpenAI API key not configured")
+class PredictionPayload(ContinuousUserInput):
+    graph_structure: GraphStructure
 
-    openai.api_key = openai_api_key # Ensure key is set for the call
+class SaveConfigPayload(BaseModel):
+    config_name: str = Field(..., description="User-provided name for the configuration")
+    graph_structure: GraphStructure
 
-    input_descriptions = []
-    for node, value in input_states.items():
-        # Describe the input value qualitatively
-        state_desc = "High" if value >= 0.66 else ("Medium" if value >= 0.33 else "Low")
-        input_descriptions.append(f"- {node} ({NODE_DESCRIPTIONS.get(node, node)}): {state_desc} (input probability approx {value:.2f})")
-    input_context = "\n".join(input_descriptions)
+# --- Helper Functions ---
 
-    # Generate qualitative relationship descriptions based on the DAG structure
+def get_dynamic_node_info(graph: GraphStructure):
+    """ Parses graph structure to get node info needed for LLM prompt """
+    node_parents = {node.id: [] for node in graph.nodes}
+    node_descriptions = {node.id: node.fullName for node in graph.nodes}
+    node_types = {node.id: node.nodeType for node in graph.nodes}
+
+    for edge in graph.edges:
+        if edge.target in node_parents:
+            node_parents[edge.target].append(edge.source)
+        else:
+             logger.warning(f"Edge target '{edge.target}' not found in node list.")
+
+    all_nodes = list(node_parents.keys())
+    target_nodes = [node_id for node_id, parents in node_parents.items() if node_types.get(node_id) == 'hidden'] # Only hidden nodes need prediction
+    input_nodes = [node_id for node_id, node_type in node_types.items() if node_type == 'input']
+
+    # Basic qualitative rule generation (can be improved)
     relationship_descriptions = []
-    for node, parents in NODE_PARENTS.items():
-        if parents: # Only describe nodes with parents
-            parent_names = [f"{p} ({NODE_DESCRIPTIONS.get(p, p)})" for p in parents]
-            node_name = f"{node} ({NODE_DESCRIPTIONS.get(node, node)})"
+    for node_id in target_nodes:
+        parents = node_parents.get(node_id, [])
+        if parents:
+            parent_names = [f"{p} ({node_descriptions.get(p, p)})" for p in parents]
+            node_name = f"{node_id} ({node_descriptions.get(node_id, node_id)})"
             relationship_descriptions.append(f"- {node_name} is influenced by: {', '.join(parent_names)}.")
-            # Add qualitative influence rules based on the new structure
-            if node == "IS3": relationship_descriptions.append("  Qualitative: Higher A1, A3, A4, H typically increase IS3 (Task Understanding).")
-            if node == "IS4": relationship_descriptions.append("  Qualitative: Higher A2, UI, H typically increase IS4 (Interaction Fluency).")
-            if node == "IS5": relationship_descriptions.append("  Qualitative: Higher A1, A3, IS3 typically increase IS5 (Relevant Knowledge Activation).")
-            if node == "IS2": relationship_descriptions.append("  Qualitative: Lower IS4, IS3 typically increase IS2 (Cognitive Load).")
-            if node == "IS1": relationship_descriptions.append("  Qualitative: Higher A5, IS4, IS5 typically increase IS1 (Confidence). Lower IS2, IS3 typically decrease IS1.")
-            if node == "O1": relationship_descriptions.append("  Qualitative: Higher IS1, IS4, IS5 typically increase O1 (Predicted Success Probability). Higher IS2, IS3 typically decrease O1.")
-            if node == "O2": relationship_descriptions.append("  Qualitative: Higher IS1, A5 typically increase O2 (Action Speed/Efficiency). Higher IS2 typically decrease O2.")
-            if node == "O3": relationship_descriptions.append("  Qualitative: Higher IS2, IS3 typically increase O3 (Help Seeking Likelihood). Higher IS1 typically decrease O3.")
+            # Generic qualitative rule - replace with more specific logic if possible
+            relationship_descriptions.append(f"  Qualitative: Generally, higher values in parent nodes tend to increase {node_name}, but complex interactions exist.")
 
+    return node_parents, node_descriptions, node_types, all_nodes, target_nodes, input_nodes, relationship_descriptions
+
+
+def call_openai_dynamic_bn(
+    input_states: Dict[str, float],
+    graph: GraphStructure
+) -> Dict[str, float]:
+    """ Calls OpenAI API for dynamically defined BN """
+    if not openai_api_key:
+        raise HTTPException(status_code=500, detail="OpenAI API key not configured")
+    openai.api_key = openai_api_key
+
+    node_parents, node_descriptions, _, _, target_nodes, input_nodes, relationship_descriptions = get_dynamic_node_info(graph)
+
+    # Validate that input_states contains all necessary input nodes
+    missing_inputs = [node for node in input_nodes if node not in input_states]
+    if missing_inputs:
+         raise HTTPException(status_code=400, detail=f"Missing input values for nodes: {', '.join(missing_inputs)}")
+
+    input_desc_list = []
+    for node, value in input_states.items():
+        if node in input_nodes: # Only include actual input nodes
+            state_desc = "High" if value >= 0.66 else ("Medium" if value >= 0.33 else "Low")
+            input_desc_list.append(f"- {node} ({node_descriptions.get(node, node)}): {state_desc} (input probability approx {value:.2f})")
+    input_context = "\n".join(input_desc_list)
+
+    if not target_nodes:
+        logger.info("No target (hidden) nodes found in the graph. Returning empty results.")
+        return {}
 
     structure_description = f"""
-    This Bayesian Network models user cognitive factors and actions during a web task.
+    This Bayesian Network models user cognitive factors and actions during a web task, defined by the user.
     Nodes are binary (State 0 or 1). We are estimating P(Node=1).
-    Node Descriptions: {json.dumps(NODE_DESCRIPTIONS, indent=2)}
-
-    Dependencies (Node -> Parents): {json.dumps(NODE_PARENTS, indent=2)}
-
+    Node Descriptions: {json.dumps(node_descriptions, indent=2)}
+    Node Types: {json.dumps({node.id: node.nodeType for node in graph.nodes}, indent=2)}
+    Dependencies (Node <- Parents): {json.dumps(node_parents, indent=2)}
     Qualitative Relationship Descriptions:
     {'\n'.join(relationship_descriptions)}
     """
 
-    system_message = """
-    You are an expert probabilistic reasoner simulating a Directed Acyclic Graph (DAG) based on qualitative descriptions.
-    Your task is to estimate the probability of the target nodes being in a 'High' state (equivalent to state 1), given the initial input probabilities (also representing P=1) for the input nodes.
-    Use the provided DAG structure and qualitative relationship descriptions to guide your estimation process. Propagate the influence from input nodes through the intermediate nodes to the output nodes according to the described dependencies and qualitative rules.
-    Provide the final estimated probabilities ONLY as a single, valid JSON object mapping the target node names to their estimated P(Node=1) value (a float between 0.0 and 1.0).
-    Ensure the JSON object contains *all* target nodes: """ + ', '.join(TARGET_NODES) + """
-    Example format: {"IS1": 0.75, "IS2": 0.3, ... , "O3": 0.65}
-    Output ONLY the JSON object and nothing else.
+    system_message = f"""
+    You are an expert probabilistic reasoner simulating a user-defined Directed Acyclic Graph (DAG).
+    Your task is to estimate the probability P(Node=1) for the 'hidden' type nodes, given the initial input probabilities P(Node=1) for the 'input' type nodes.
+    Use the provided DAG structure and qualitative relationship descriptions to guide your estimation.
+    Provide the final estimated probabilities ONLY as a single, valid JSON object mapping the target node names ({', '.join(target_nodes)}) to their estimated P(Node=1) value (a float between 0.0 and 1.0).
+    Ensure the JSON object contains *all* target nodes. Example format: {{"HiddenNode1": 0.7, "HiddenNode2": 0.4}}
+    Output ONLY the JSON object.
     """
     user_message = f"""
     Initial Input Probabilities (P=1):
@@ -179,162 +159,213 @@ def call_openai_for_full_bn(input_states: Dict[str, float]) -> Dict[str, float]:
     Bayesian Network Structure and Qualitative Relationships:
     {structure_description}
 
-    Estimate the probability P(Node=1) for all target nodes ({', '.join(TARGET_NODES)}) based on the provided inputs, network structure, and qualitative relationships. Return the result ONLY as a JSON object mapping each target node name to its estimated probability (a float between 0.0 and 1.0).
+    Estimate the probability P(Node=1) for all target nodes ({', '.join(target_nodes)}) based on the provided inputs, network structure, and qualitative relationships. Return the result ONLY as a JSON object mapping each target node name to its estimated probability (a float between 0.0 and 1.0).
     """
 
-    logger.debug("Constructing single call prompt to OpenAI...")
+    logger.debug("Constructing dynamic prompt for OpenAI...")
     try:
         response = openai.chat.completions.create(
-            model="gpt-4o", # Using gpt-4o as requested
+            model="gpt-4o",
             messages=[
                 {"role": "system", "content": system_message},
                 {"role": "user", "content": user_message}
             ],
-            response_format={"type": "json_object"}, # Requesting JSON object
-            max_tokens=1000, # Increased max_tokens slightly
-            temperature=0.1, # Lower temperature for less randomness
+            response_format={"type": "json_object"},
+            max_tokens=1500, # Increased slightly for potentially larger dynamic graphs
+            temperature=0.1,
             n=1
         )
         llm_output_raw = response.choices[0].message.content.strip()
-        logger.info(f"OpenAI Raw Output (Single Call): {llm_output_raw}")
+        logger.info(f"OpenAI Raw Output (Dynamic Call): {llm_output_raw}")
 
         try:
             estimated_probs = json.loads(llm_output_raw)
             validated_probs = {}
             missing_nodes = []
-            # Validate and clamp probabilities, ensure all TARGET_NODES are present
-            for node in TARGET_NODES:
+            for node in target_nodes:
                 if node in estimated_probs and isinstance(estimated_probs[node], (float, int)):
                     validated_probs[node] = max(0.0, min(1.0, float(estimated_probs[node])))
                 else:
-                    logger.warning(f"Node '{node}' missing or invalid value in LLM JSON output. Received: {estimated_probs.get(node)}")
+                    logger.warning(f"Node '{node}' missing/invalid in LLM JSON. Using default 0.5.")
                     missing_nodes.append(node)
-                    # Provide a default or handle this based on requirements
-                    # Defaulting to input value if it exists, else 0.5, or better, raise error?
-                    # Let's default to 0.5 and log a warning.
-                    validated_probs[node] = 0.5 # Default if LLM misses a node
-
+                    validated_probs[node] = 0.5
 
             if missing_nodes:
-                logger.warning(f"LLM output was missing or invalid for nodes: {', '.join(missing_nodes)}. Using default 0.5 for these.")
-            else:
-                 logger.info("LLM output contains all expected target nodes.")
-
+                logger.warning(f"LLM output missing/invalid for: {', '.join(missing_nodes)}.")
             return validated_probs
 
         except json.JSONDecodeError as json_err:
             logger.error(f"Failed to parse LLM output as JSON: {llm_output_raw}. Error: {json_err}")
-            # Provide the raw output in the error detail for debugging
             raise HTTPException(status_code=500, detail=f"Failed to parse LLM JSON response. Output: {llm_output_raw}. Error: {json_err}")
         except Exception as e:
              logger.error(f"Error validating/processing LLM JSON: {e}", exc_info=True)
              raise HTTPException(status_code=500, detail=f"Error processing LLM JSON response: {e}")
 
-
     except openai.APIError as e:
-        logger.error(f"OpenAI API returned an API Error: {e}")
-        raise HTTPException(status_code=502, detail=f"OpenAI API Error: {e.body}") # Include error body
+        logger.error(f"OpenAI API Error: {e}")
+        raise HTTPException(status_code=502, detail=f"OpenAI API Error: {e.body}")
     except openai.AuthenticationError as e:
         logger.error(f"OpenAI Authentication Error: {e}")
-        raise HTTPException(status_code=401, detail=f"OpenAI Authentication Failed - Check API Key. Error: {e.body}")
+        raise HTTPException(status_code=401, detail=f"OpenAI Authentication Failed. Error: {e.body}")
     except openai.RateLimitError as e:
         logger.error(f"OpenAI Rate Limit Exceeded: {e}")
         raise HTTPException(status_code=429, detail=f"OpenAI Rate Limit Exceeded: {e.body}")
     except Exception as e:
-        logger.error(f"Error in single call OpenAI interaction: {e}", exc_info=True)
+        logger.error(f"Error in dynamic OpenAI interaction: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error during OpenAI request: {e}")
 
-@app.post("/api/predict_openai_bn_single_call")
-async def predict_openai_bn_single_call(data: ContinuousUserInput):
-    print("DEBUG: Entered /api/predict_openai_bn_single_call function.", flush=True)
-    """
-    Receives input probabilities and returns all node probabilities
-    estimated by a single call to the OpenAI LLM.
-    """
-    # Get qualitative descriptions and structure to return to frontend
-    input_descriptions_list = []
-    input_probs_dict = data.dict()
-    for node, value in input_probs_dict.items():
-        state_desc = "High" if value >= 0.66 else ("Medium" if value >= 0.33 else "Low")
-        input_descriptions_list.append({
-            "node": node,
-            "description": NODE_DESCRIPTIONS.get(node, node),
-            "value": value,
-            "state": state_desc
-        })
 
-    relationship_descriptions_list = []
-    for node, parents in NODE_PARENTS.items():
-         if parents:
-             parent_names = [f"{p} ({NODE_DESCRIPTIONS.get(p, p)})" for p in parents]
-             node_name_desc = f"{node} ({NODE_DESCRIPTIONS.get(node, node)})"
-             description = f"{node_name_desc} is influenced by: {', '.join(parent_names)}."
-             # Add qualitative influence rules based on the new structure
-             qualitative = ""
-             if node == "IS3": qualitative = "Higher A1, A3, A4, H typically increase Task Understanding."
-             if node == "IS4": qualitative = "Higher A2, UI, H typically increase Interaction Fluency."
-             if node == "IS5": qualitative = "Higher A1, A3, IS3 typically increase Relevant Knowledge Activation."
-             if node == "IS2": qualitative = "Lower IS4, IS3 typically increase Cognitive Load."
-             if node == "IS1": qualitative = "Higher A5, IS4, IS5 typically increase Confidence. Lower IS2, IS3 typically decrease Confidence."
-             if node == "O1": qualitative = "Higher IS1, IS4, IS5 typically increase Predicted Success Probability. Higher IS2, IS3 typically decrease Predicted Success Probability."
-             if node == "O2": qualitative = "Higher IS1, A5 typically increase Action Speed/Efficiency. Higher IS2 typically decrease Action Speed/Efficiency."
-             if node == "O3": qualitative = "Higher IS2, IS3 typically increase Help Seeking Likelihood. Higher IS1 typically decrease Help Seeking Likelihood."
-             relationship_descriptions_list.append({
-                 "node": node,
-                 "description": description,
-                 "qualitative": qualitative
-             })
+# --- API Endpoints ---
 
+@app.get("/api/ping")
+def ping():
+    logger.info("--- /api/ping called ---")
+    return {"message": "pong"}
+
+# --- Config Management Endpoints ---
+
+CONFIG_KEY_PREFIX = "bn_config:"
+
+@app.post("/api/configs")
+async def save_configuration(payload: SaveConfigPayload):
+    """ Saves a graph configuration to Vercel KV """
+    config_id = f"{CONFIG_KEY_PREFIX}{uuid4()}" # Generate unique ID
+    config_data = {
+        "id": config_id,
+        "name": payload.config_name,
+        "graph_structure": payload.graph_structure.dict()
+    }
+    try:
+        kv.set(config_id, json.dumps(config_data))
+        logger.info(f"Saved configuration '{payload.config_name}' with ID: {config_id}")
+        return {"message": "Configuration saved successfully", "config_id": config_id, "config_name": payload.config_name}
+    except Exception as e:
+        logger.error(f"Error saving configuration to Vercel KV: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to save configuration: {e}")
+
+@app.get("/api/configs")
+async def list_configurations():
+    """ Lists saved graph configurations from Vercel KV """
+    try:
+        # Fetch all keys matching the prefix
+        config_keys = [key async for key in kv.scan_iter(match=f"{CONFIG_KEY_PREFIX}*")]
+        configs_summary = []
+        for key in config_keys:
+            try:
+                config_json = await kv.get(key)
+                if config_json:
+                    config_data = json.loads(config_json)
+                    configs_summary.append({
+                        "id": config_data.get("id", key), # Use stored ID if available
+                        "name": config_data.get("name", "Unnamed Config")
+                    })
+            except Exception as e:
+                logger.warning(f"Failed to parse config data for key {key}: {e}")
+                configs_summary.append({"id": key, "name": "Error loading name"})
+
+        logger.info(f"Found {len(configs_summary)} configurations.")
+        return configs_summary
+    except Exception as e:
+        logger.error(f"Error listing configurations from Vercel KV: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to list configurations: {e}")
+
+@app.get("/api/configs/{config_id}")
+async def load_configuration(config_id: str):
+    """ Loads a specific graph configuration from Vercel KV """
+    # Basic validation to ensure the key looks right
+    if not config_id.startswith(CONFIG_KEY_PREFIX):
+        config_id = f"{CONFIG_KEY_PREFIX}{config_id}" # Add prefix if missing (simple fix)
 
     try:
+        config_json = await kv.get(config_id)
+        if config_json is None:
+            raise HTTPException(status_code=404, detail=f"Configuration ID '{config_id}' not found.")
+
+        config_data = json.loads(config_json)
+        logger.info(f"Loaded configuration with ID: {config_id}")
+        # Return the full config data including graph structure
+        return config_data
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        logger.error(f"Error loading configuration '{config_id}' from Vercel KV: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to load configuration: {e}")
+
+
+# --- Prediction Endpoint (Modified) ---
+
+@app.post("/api/predict_openai_bn_single_call")
+async def predict_openai_bn_single_call(payload: PredictionPayload):
+    """
+    Receives dynamic graph structure and input probabilities, returns all node
+    probabilities estimated by the LLM.
+    """
+    logger.info("Entered /api/predict_openai_bn_single_call (dynamic) function.")
+
+    try:
+        input_probs_dict = payload.input_values
+        graph_structure = payload.graph_structure
+
+        # Parse dynamic structure
+        node_parents, node_descriptions, node_types, all_nodes, target_nodes, input_nodes, relationship_descriptions = get_dynamic_node_info(graph_structure)
+
         # Call LLM for target node probabilities
-        estimated_target_probs = call_openai_for_full_bn(input_probs_dict)
+        estimated_target_probs = call_openai_dynamic_bn(input_probs_dict, graph_structure)
 
         # Combine input probabilities and estimated probabilities
         all_current_probabilities = {**input_probs_dict, **estimated_target_probs}
 
         final_result = {}
-        for node in ALL_NODES:
+        for node in all_nodes:
+            node_desc = node_descriptions.get(node, node)
             if node in all_current_probabilities:
                 p1 = all_current_probabilities[node]
                 p1_clamped = max(0.0, min(1.0, p1))
-                final_result[node] = {"0": 1.0 - p1_clamped, "1": p1_clamped, "description": NODE_DESCRIPTIONS.get(node, node)}
+                final_result[node] = {"0": 1.0 - p1_clamped, "1": p1_clamped, "description": node_desc}
             else:
-                # Should not happen if all nodes are in ALL_NODES and handled
-                logger.warning(f"Node {node} was not found in combined probability dictionary.")
-                final_result[node] = {"0": 0.5, "1": 0.5, "description": NODE_DESCRIPTIONS.get(node, node)}
+                # Should only happen if target node estimation failed and defaulted
+                logger.warning(f"Node {node} not found in final probability dictionary - using default.")
+                final_result[node] = {"0": 0.5, "1": 0.5, "description": node_desc}
+
+        logger.info("Successfully generated prediction using dynamic graph.")
+
+        # Prepare context to return (based on dynamic graph)
+        input_descriptions_list = []
+        for node, value in input_probs_dict.items():
+             if node in input_nodes:
+                 state_desc = "High" if value >= 0.66 else ("Medium" if value >= 0.33 else "Low")
+                 input_descriptions_list.append({
+                     "node": node, "description": node_descriptions.get(node, node),
+                     "value": value, "state": state_desc })
+
+        qualitative_rules_list = []
+        for i in range(0, len(relationship_descriptions), 2): # Assuming pairs of influence + qualitative rule
+            node_id = target_nodes[i//2] # Approximate mapping, might need refinement
+            desc = relationship_descriptions[i]
+            qual = relationship_descriptions[i+1] if (i+1) < len(relationship_descriptions) else ""
+            qualitative_rules_list.append({"node": node_id, "description": desc, "qualitative": qual.strip()})
 
 
-        logger.info("Successfully generated prediction using single LLM call.")
-
-        # Return probabilities AND the context provided to the LLM for display
         return {
             "probabilities": final_result,
             "llm_context": {
                 "input_states": input_descriptions_list,
-                "node_dependencies": NODE_PARENTS,
-                "qualitative_rules": relationship_descriptions_list,
-                "node_descriptions": NODE_DESCRIPTIONS
+                "node_dependencies": node_parents,
+                "qualitative_rules": qualitative_rules_list,
+                "node_descriptions": node_descriptions
             }
         }
 
     except HTTPException as e:
-        # Pass HTTPException errors directly (like API key missing, LLM errors)
         raise e
     except Exception as e:
-        logger.error(f"Error in single call endpoint logic: {e}", exc_info=True)
-        # Catch any other unexpected errors
-        raise HTTPException(status_code=500, detail=f"Internal server error during single call prediction: {e}")
+        logger.error(f"Error in dynamic prediction endpoint: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Internal server error during dynamic prediction: {e}")
 
-print("DEBUG: /api/predict_openai_bn_single_call route defined.", flush=True)
-
+# --- Root Endpoint ---
 @app.get("/")
 def root():
-    """ Basic endpoint to check if the API is running. """
-    # This route is actually served by Vercel's static server from public/index.html
-    # This function will likely never be called in a standard Vercel deployment
-    # but it's good practice for local testing with `uvicorn api.main:app --reload`
-    print("DEBUG: Entered / route (API function).", flush=True)
-    return {"message": "API is running. Frontend should be served from /public."}
+    logger.info("Entered / route (API function).")
+    return {"message": "BN API is running. Frontend served from /public."}
 
 print("DEBUG: Finished defining routes.", flush=True)
