@@ -8,6 +8,7 @@ import urllib.parse
 from datetime import datetime
 import io
 import csv
+import aiohttp
 
 print("--- DEBUG: api/main.py TOP LEVEL EXECUTION ---", flush=True)
 
@@ -20,8 +21,8 @@ try:
     from dotenv import load_dotenv
     import redis
     from redis.connection import ConnectionPool
-    from vercel_blob import put as blob_put, head as blob_head, download as blob_download, delete as blob_delete
-    print("--- DEBUG: Imported FastAPI, CORS, Pydantic, OpenAI, Redis, Vercel Blob ---", flush=True)
+    from vercel_blob import put as blob_put, head as blob_head, delete as blob_delete
+    print("--- DEBUG: Imported FastAPI, CORS, Pydantic, OpenAI, Redis, Vercel Blob, aiohttp ---", flush=True)
 
     app = FastAPI(title="Dynamic Bayesian Network API")
     print("--- DEBUG: FastAPI app created ---", flush=True)
@@ -362,7 +363,7 @@ def call_openai_for_reasoning(input_states: Dict[str, float], graph: GraphStruct
     all_probs_text = "\n".join([f"- {node} ({node_descriptions.get(node, node)}): P(1)={all_probs.get(node, 'N/A'):.3f}" for node in all_nodes])
 
     system_message = """
-    You are an expert analyst Explaining a Bayesian Network simulation for cognitive processes.
+    You are an expert analyst explaining a Bayesian Network simulation for cognitive processes.
     Given the input probabilities, network structure (nodes, descriptions, dependencies), and estimated probabilities for hidden nodes,
     provide a concise explanation for why each hidden node received its estimated P(Node=1).
     Focus on how the input values and parent nodes' semantic meanings influenced each hidden node's probability.
@@ -425,13 +426,16 @@ async def vercel_blob_test():
     try:
         test_filename = "test_blob.csv"
         test_content = "Test,Timestamp,Data\n1,2023-10-01T00:00:00Z,TestData".encode('utf-8')
-        await blob_put(
+        put_result = await blob_put(
             pathname=test_filename,
             body=test_content,
             options={'access': 'public', 'add_random_suffix': False, 'content_type': 'text/csv', 'token': vercel_blob_token}
         )
-        blob_response = await blob_download(pathname=test_filename, options={'token': vercel_blob_token})
-        content = await blob_response.read()
+        async with aiohttp.ClientSession() as session:
+            async with session.get(put_result['url']) as response:
+                if response.status != 200:
+                    raise Exception(f"Failed to fetch blob: HTTP {response.status}")
+                content = await response.read()
         await blob_delete(pathname=test_filename, options={'token': vercel_blob_token})
         return {"status": "success", "content": content.decode('utf-8')}
     except Exception as e:
@@ -657,10 +661,21 @@ async def log_data_to_blob(log_entry: LogPayload):
         existing_content = b""
         if not needs_headers:
             try:
-                blob_response = await blob_download(pathname=log_filename, options={'token': vercel_blob_token})
-                existing_content = await blob_response.read()
-                if existing_content.endswith(b'\n'):
-                    existing_content = existing_content[:-1]
+                put_result = await blob_head(pathname=log_filename, options={'token': vercel_blob_token})
+                blob_url = put_result.get('url')
+                if not blob_url:
+                    logger.warning(f"No URL returned for {log_filename}. Treating as new file.")
+                    needs_headers = True
+                else:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(blob_url) as response:
+                            if response.status != 200:
+                                logger.warning(f"Failed to fetch {log_filename}: HTTP {response.status}")
+                                needs_headers = True
+                            else:
+                                existing_content = await response.read()
+                                if existing_content.endswith(b'\n'):
+                                    existing_content = existing_content[:-1]
             except Exception as e:
                 logger.warning(f"Could not retrieve {log_filename}: {e}")
                 needs_headers = True
@@ -677,12 +692,12 @@ async def log_data_to_blob(log_entry: LogPayload):
         final_csv_content = output.getvalue().encode('utf-8')
         output.close()
 
-        await blob_put(
+        put_result = await blob_put(
             pathname=log_filename,
             body=final_csv_content,
             options={'access': 'public', 'add_random_suffix': False, 'content_type': 'text/csv', 'token': vercel_blob_token}
         )
-        logger.info(f"Appended {len(new_rows)} entries to {log_filename}")
+        logger.info(f"Appended {len(new_rows)} entries to {log_filename} at {put_result['url']}")
     except Exception as e:
         logger.error(f"Failed to log to {log_filename}: {e}", exc_info=True)
         raise e
@@ -699,11 +714,19 @@ async def download_log_file(config_id: str):
     logger.info(f"Downloading log: {log_filename}")
 
     try:
-        blob_response = await blob_download(pathname=log_filename, options={'token': vercel_blob_token})
+        put_result = await blob_head(pathname=log_filename, options={'token': vercel_blob_token})
+        blob_url = put_result.get('url')
+        if not blob_url:
+            raise HTTPException(status_code=404, detail=f"No URL found for log file {log_filename}")
+        async with aiohttp.ClientSession() as session:
+            async with session.get(blob_url) as response:
+                if response.status != 200:
+                    raise HTTPException(status_code=404, detail=f"Failed to fetch log file: HTTP {response.status}")
+                content = await response.read()
         safe_filename_part = config_id_with_prefix.replace(CONFIG_KEY_PREFIX, "")
         download_filename = f"log_{safe_filename_part}.csv"
         return StreamingResponse(
-            blob_response.iter_bytes(),
+            io.BytesIO(content),
             media_type='text/csv',
             headers={'Content-Disposition': f'attachment; filename="{download_filename}"'}
         )
