@@ -1,265 +1,339 @@
 // --- public/script.js ---
 
-// --- Initialize Cytoscape (cy variable) ---
-const graphElements = [
-    { data: { id: 'A1', fullName: 'Domain Expertise' } },
-    { data: { id: 'A2', fullName: 'Web Literacy' } },
-    { data: { id: 'A3', fullName: 'Task Familiarity' } },
-    { data: { id: 'A4', fullName: 'Goal Clarity' } },
-    { data: { id: 'A5', fullName: 'Motivation' } },
-    { data: { id: 'UI', fullName: 'UI State (Quality/Clarity)' } },
-    { data: { id: 'H', fullName: 'History (Relevant past interactions)' } },
-    { data: { id: 'IS1', fullName: 'Confidence' } },
-    { data: { id: 'IS2', fullName: 'Cognitive Load' } },
-    { data: { id: 'IS3', fullName: 'Task Understanding' } },
-    { data: { id: 'IS4', fullName: 'Interaction Fluency' } },
-    { data: { id: 'IS5', fullName: 'Relevant Knowledge Activation' } },
-    { data: { id: 'O1', fullName: 'Predicted Success Probability' } },
-    { data: { id: 'O2', fullName: 'Action Speed/Efficiency' } },
-    { data: { id: 'O3', fullName: 'Help Seeking Likelihood' } },
-    { data: { source: 'A1', target: 'IS3' } },
-    { data: { source: 'A3', target: 'IS3' } },
-    { data: { source: 'A4', target: 'IS3' } },
-    { data: { source: 'H', target: 'IS3' } },
-    { data: { source: 'A2', target: 'IS4' } },
-    { data: { source: 'UI', target: 'IS4' } },
-    { data: { source: 'H', target: 'IS4' } },
-    { data: { source: 'A1', target: 'IS5' } },
-    { data: { source: 'A3', target: 'IS5' } },
-    { data: { source: 'IS3', target: 'IS5' } },
-    { data: { source: 'IS4', target: 'IS2' } },
-    { data: { source: 'IS3', target: 'IS2' } },
-    { data: { source: 'A5', target: 'IS1' } },
-    { data: { source: 'IS2', target: 'IS1' } },
-    { data: { source: 'IS3', target: 'IS1' } },
-    { data: { source: 'IS4', target: 'IS1' } },
-    { data: { source: 'IS5', target: 'IS1' } },
-    { data: { source: 'IS1', target: 'O1' } },
-    { data: { source: 'IS2', target: 'O1' } },
-    { data: { source: 'IS3', target: 'O1' } },
-    { data: { source: 'IS5', target: 'O1' } },
-    { data: { source: 'IS1', target: 'O2' } },
-    { data: { source: 'IS2', target: 'O2' } },
-    { data: { source: 'A5', target: 'O2' } },
-    { data: { source: 'IS1', target: 'O3' } },
-    { data: { source: 'IS2', target: 'O3' } },
-    { data: { source: 'IS3', target: 'O3' } }
-];
+// Global variables
+let cy; // Cytoscape instance
+let currentConfig = { // Holds the currently loaded configuration
+    id: null,
+    name: "Unsaved Configuration",
+    graph_structure: { nodes: [], edges: [] }
+};
+let sessionLog = []; // Array to hold log entries for the current session
 
-const cy = cytoscape({
-    container: document.getElementById('cy'),
-    elements: graphElements,
-    style: [
-        {
-            selector: 'node',
-            style: {
-                'background-color': '#ccc',
-                'label': function(node) {
-                    const id = node.data('id');
-                    const fullName = node.data('fullName') || id;
-                    const currentLabel = node.data('currentProbLabel');
-                    return `${id}: ${fullName}\n${currentLabel || '(N/A)'}`;
-                },
-                'width': 120,
-                'height': 120,
-                'shape': 'ellipse',
-                'text-valign': 'center',
-                'text-halign': 'center',
-                'font-size': '10px',
-                'font-weight': '150', // Added to make font less thick (light)
-                'text-wrap': 'wrap',
-                'text-max-width': 110,
-                'text-outline-color': '#fff',
-                'text-outline-width': 1,
-                'color': '#333',
-                'transition-property': 'background-color, color',
-                'transition-duration': '0.5s'
-            }
-        },
-        {
-            selector: 'node[id = "A1"], node[id = "A2"], node[id = "A3"], node[id = "A4"], node[id = "A5"], node[id = "UI"], node[id = "H"]',
-            style: {
-                'background-color': '#add8e6',
-                'shape': 'rectangle',
-                'width': 130,
-                'height': 70
-            }
-        },
-        {
-            selector: 'node[id = "O1"], node[id = "O2"], node[id = "O3"]',
-            style: {
-                'background-color': '#90ee90',
-                'shape': 'roundrectangle',
-                'width': 130,
-                'height': 70
-            }
-        },
-        {
-            selector: 'node[id ^= "IS"]',
-            style: {
-                'background-color': '#ffb6c1',
-                'shape': 'ellipse'
-            }
-        },
-        {
-            selector: 'edge',
-            style: {
-                'width': 2,
-                'line-color': '#666',
-                'target-arrow-shape': 'triangle', // Fixed typo from 'target-arrow-shape W'
-                'target-arrow-color': '#666',
-                'curve-style': 'bezier'
-            }
-        }
-    ],
-    layout: {
-        name: 'cola',
-        animate: true,
-        ungrabifyWhileSimulating: false,
-        nodeSpacing: 40,
-        edgeLength: 150,
-        padding: 20,
-        randomize: false
-    }
+// --- Initialization ---
+document.addEventListener('DOMContentLoaded', () => {
+    initializeCytoscape();
+    initializeUI();
+    loadConfigList(); // Fetch saved configurations on load
 });
 
-// --- Function to update node appearance based on probabilities ---
-function updateNodeProbabilities(probabilities) {
-    const useGradient = document.getElementById('gradient-toggle').checked;
-
-    cy.nodes().forEach(node => {
-        const nodeId = node.id();
-        if (probabilities[nodeId] && probabilities[nodeId]["1"] !== undefined) {
-            const probState1 = probabilities[nodeId]["1"];
-            node.data('currentProbLabel', `P(1)=${probState1.toFixed(3)}`);
-
-            if (useGradient) {
-                // Reversed gradient: low prob -> red, high prob -> green
-                const color = `rgb(${Math.round(255 * (1 - probState1))}, ${Math.round(255 * probState1)}, 0)`;
-                node.style({
-                    'background-color': color,
-                    'color': '#333' // Default text color for gradient mode
-                });
-            } else {
-                // Clean coloring: dark purple background, white text
-                node.style({
-                    'background-color': '#4B0082', // Dark purple
-                    'color': '#FFFFFF' // White text
-                });
+function initializeCytoscape() {
+    console.log("Initializing Cytoscape...");
+    cy = cytoscape({
+        container: document.getElementById('cy'),
+        elements: [], // Start empty, load config later
+        style: [ // Base styles, colors updated dynamically
+            {
+                selector: 'node',
+                style: {
+                    'background-color': '#ccc', // Default, overridden by type/probability
+                    'label': function(node) {
+                        const id = node.data('id');
+                        const fullName = node.data('fullName') || id;
+                        const currentLabel = node.data('currentProbLabel');
+                        return `${id}: ${fullName}\n${currentLabel || '(N/A)'}`;
+                    },
+                    'width': 120, 'height': 120,
+                    'shape': 'ellipse', // Default shape
+                    'text-valign': 'center', 'text-halign': 'center',
+                    'font-size': '10px', 'font-weight': '150',
+                    'text-wrap': 'wrap', 'text-max-width': 110,
+                    'text-outline-color': '#fff', 'text-outline-width': 1,
+                    'color': '#333', // Default text color
+                    'transition-property': 'background-color, color',
+                    'transition-duration': '0.5s'
+                }
+            },
+            { // Style for INPUT nodes
+                selector: 'node[nodeType="input"]',
+                style: { 'shape': 'rectangle', 'width': 130, 'height': 70 }
+            },
+             { // Style for HIDDEN nodes (and formerly OUTPUT nodes)
+                 selector: 'node[nodeType="hidden"]',
+                 style: { 'shape': 'ellipse' } // Keep default shape
+             },
+            { // Edge style
+                selector: 'edge',
+                style: {
+                    'width': 2, 'line-color': '#666',
+                    'target-arrow-shape': 'triangle',
+                    'target-arrow-color': '#666',
+                    'curve-style': 'bezier'
+                }
             }
+        ],
+        layout: { name: 'cola', // Default layout
+             animate: true, nodeSpacing: 50, edgeLength: 180, padding: 30
+         }
+    });
+     console.log("Cytoscape initialized.");
+
+    // Placeholder: Add event listeners for graph editing here later
+    // cy.on('tap', 'node', (evt) => { /* ... */ });
+}
+
+function initializeUI() {
+    console.log("Initializing UI event listeners...");
+    document.getElementById('save-config-button').addEventListener('click', saveConfiguration);
+    document.getElementById('load-config-button').addEventListener('click', loadSelectedConfiguration);
+    document.getElementById('update-button').addEventListener('click', fetchAndUpdateLLM);
+    document.getElementById('gradient-toggle').addEventListener('change', () => updateNodeProbabilities(null)); // Redraw with current probs
+    document.getElementById('download-session-log-button').addEventListener('click', downloadSessionLog);
+    console.log("UI Listeners attached.");
+}
+
+// --- Configuration Management ---
+
+async function saveConfiguration() {
+    const configNameInput = document.getElementById('config-name');
+    const configName = configNameInput.value.trim();
+    if (!configName) {
+        setStatusMessage("Please enter a name for the configuration.", true);
+        return;
+    }
+    if (!cy) {
+         setStatusMessage("Cytoscape graph not initialized.", true);
+         return;
+     }
+
+    setStatusMessage("Saving configuration...", false);
+    const currentGraphStructure = {
+        nodes: cy.nodes().map(node => ({ id: node.id(), fullName: node.data('fullName'), nodeType: node.data('nodeType') })),
+        edges: cy.edges().map(edge => ({ source: edge.source().id(), target: edge.target().id() }))
+    };
+
+    try {
+        const response = await fetch('/api/configs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ config_name: configName, graph_structure: currentGraphStructure })
+        });
+        const result = await response.json();
+
+        if (!response.ok) {
+            throw new Error(result.detail || `HTTP error ${response.status}`);
+        }
+
+        setStatusMessage(`Configuration '${result.config_name}' saved successfully (ID: ${result.config_id}).`, false);
+        currentConfig = { // Update current config state
+             id: result.config_id,
+             name: result.config_name,
+             graph_structure: currentGraphStructure
+        };
+        document.getElementById('current-config-name').textContent = currentConfig.name;
+        configNameInput.value = ''; // Clear input
+        await loadConfigList(); // Refresh dropdown
+        clearSessionLog(); // Saving creates a new context
+
+    } catch (error) {
+        console.error('Error saving configuration:', error);
+        setStatusMessage(`Error saving configuration: ${error.message}`, true);
+    }
+}
+
+async function loadConfigList() {
+    console.log("Loading configuration list...");
+    setStatusMessage("Loading config list...", false);
+    try {
+        const response = await fetch('/api/configs');
+        if (!response.ok) {
+            throw new Error(`HTTP error ${response.status}`);
+        }
+        const configs = await response.json();
+        const select = document.getElementById('load-config-select');
+        select.innerHTML = '<option value="">-- Select a config --</option>'; // Clear existing options
+        configs.forEach(config => {
+            const option = document.createElement('option');
+            option.value = config.id;
+            option.textContent = config.name;
+            select.appendChild(option);
+        });
+         setStatusMessage("Config list loaded.", false);
+         console.log("Config list updated.");
+    } catch (error) {
+        console.error('Error loading configuration list:', error);
+        setStatusMessage(`Error loading config list: ${error.message}`, true);
+    }
+}
+
+async function loadSelectedConfiguration() {
+    const select = document.getElementById('load-config-select');
+    const configId = select.value;
+    if (!configId) {
+        setStatusMessage("Please select a configuration to load.", true);
+        return;
+    }
+    if (!cy) {
+         setStatusMessage("Cytoscape graph not initialized.", true);
+         return;
+     }
+
+    setStatusMessage(`Loading configuration ${configId}...`, false);
+    try {
+        const response = await fetch(`/api/configs/${configId}`);
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ detail: `HTTP error ${response.status}` }));
+            throw new Error(errorData.detail || `HTTP error ${response.status}`);
+        }
+        const configData = await response.json();
+
+        // Update Cytoscape
+        const graphElements = configData.graph_structure.nodes.map(n => ({ data: { id: n.id, fullName: n.fullName, nodeType: n.nodeType } }))
+            .concat(configData.graph_structure.edges.map(e => ({ data: { source: e.source, target: e.target } })));
+
+        cy.elements().remove(); // Clear existing graph
+        cy.add(graphElements); // Add new elements
+        runLayout(); // Apply layout
+
+        currentConfig = configData; // Update global state
+        document.getElementById('config-name').value = currentConfig.name; // Set name input for potential re-save
+         document.getElementById('current-config-name').textContent = currentConfig.name;
+        updateInputControls(currentConfig.graph_structure.nodes); // Update input fields
+        updateNodeProbabilities({}); // Reset probabilities on graph
+        clearSessionLog(); // Loading resets the session
+
+        setStatusMessage(`Configuration '${currentConfig.name}' loaded successfully.`, false);
+        console.log(`Loaded config ${configId}`);
+
+    } catch (error) {
+        console.error('Error loading selected configuration:', error);
+        setStatusMessage(`Error loading configuration: ${error.message}`, true);
+    }
+}
+
+function runLayout() {
+     if (!cy) return;
+     let layoutName = 'cola'; // Default
+     try {
+         // Check if layout is registered (basic check)
+         if (typeof cy.layout({ name: 'cola' }).run !== 'function') throw new Error("Cola not registered");
+     } catch(e) {
+         console.warn("Cola layout failed or not registered, trying dagre...");
+         layoutName = 'dagre';
+          try {
+              if (typeof cy.layout({ name: 'dagre' }).run !== 'function') throw new Error("Dagre not registered");
+         } catch(e) {
+             console.error("Neither Cola nor Dagre layout seem available!");
+             layoutName = 'grid'; // Absolute fallback
+         }
+     }
+
+    console.log(`Running layout: ${layoutName}`);
+     const layoutOptions = layoutName === 'cola'
+         ? { name: 'cola', animate: true, nodeSpacing: 50, edgeLength: 180, padding: 30 }
+         : layoutName === 'dagre'
+             ? { name: 'dagre', rankDir: 'TB', spacingFactor: 1.2, animate: true, padding: 30 }
+             : { name: 'grid' }; // Fallback
+
+    cy.layout(layoutOptions).run();
+}
+
+
+function setStatusMessage(message, isError = false) {
+    const statusElement = document.getElementById('config-status');
+    statusElement.textContent = message;
+    statusElement.className = isError ? 'error' : '';
+}
+
+// --- Dynamic Input Controls ---
+
+function updateInputControls(nodes) {
+    const container = document.getElementById('input-controls-container');
+    container.innerHTML = ''; // Clear existing
+    const inputNodes = nodes.filter(n => n.nodeType === 'input');
+
+    if (inputNodes.length === 0) {
+        container.innerHTML = '<p>No input nodes defined in this configuration.</p>';
+        return;
+    }
+
+    inputNodes.forEach(node => {
+        const div = document.createElement('div');
+        const label = document.createElement('label');
+        label.htmlFor = `input-${node.id}`;
+        label.textContent = `${node.id} (${node.fullName}):`;
+
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.id = `input-${node.id}`;
+        input.name = node.id;
+        input.min = "0";
+        input.max = "1";
+        input.step = "0.01";
+        input.value = "0.5"; // Default value
+
+        div.appendChild(label);
+        div.appendChild(input);
+        container.appendChild(div);
+    });
+}
+
+// --- Prediction ---
+
+async function fetchAndUpdateLLM() {
+    if (!currentConfig || !currentConfig.graph_structure || currentConfig.graph_structure.nodes.length === 0) {
+        alert("Please load or define a graph configuration first.");
+        return;
+    }
+     if (!cy) {
+         alert("Cytoscape not initialized.");
+         return;
+     }
+
+    // Gather input values dynamically
+    const inputData = { input_values: {} };
+    const inputNodes = currentConfig.graph_structure.nodes.filter(n => n.nodeType === 'input');
+    let missingInput = false;
+    inputNodes.forEach(node => {
+        const inputElement = document.getElementById(`input-${node.id}`);
+        if (inputElement) {
+            const value = parseFloat(inputElement.value);
+            if (isNaN(value)) {
+                alert(`Invalid input for ${node.id}. Please enter a number between 0 and 1.`);
+                missingInput = true;
+            }
+            inputData.input_values[node.id] = isNaN(value) ? 0.5 : Math.max(0, Math.min(1, value)); // Clamp and default NaN
         } else {
-            node.data('currentProbLabel', '(N/A)');
-            // Apply default colors based on node type
-            let bgColor, textColor = '#333';
-            if (['A1', 'A2', 'A3', 'A4', 'A5', 'UI', 'H'].includes(nodeId)) {
-                bgColor = '#add8e6';
-            } else if (['O1', 'O2', 'O3'].includes(nodeId)) {
-                bgColor = '#90ee90';
-            } else {
-                bgColor = '#ffb6c1';
-            }
-            if (!useGradient) {
-                bgColor = '#4B0082';
-                textColor = '#FFFFFF';
-            }
-            node.style({
-                'background-color': bgColor,
-                'color': textColor
-            });
+            console.warn(`Input element for ${node.id} not found. Using default 0.5`);
+             inputData.input_values[node.id] = 0.5; // Default if element is missing
         }
     });
-}
 
-// --- Function to display LLM context ---
-function displayLLMContext(context) {
-    const inputDiv = document.getElementById('input-context');
-    const structureDiv = document.getElementById('structure-context');
-    const rulesDiv = document.getElementById('rules-context');
-    const descriptionsDiv = document.getElementById('node-descriptions-context');
+    if (missingInput) return;
 
-    let inputHtml = '<h3>Input States Provided:</h3><ul>';
-    context.input_states.forEach(input => {
-        inputHtml += `<li><strong>${input.node}</strong> (${input.description}): ${input.state} (prob approx ${input.value.toFixed(2)})</li>`;
-    });
-    inputHtml += '</ul>';
-    inputDiv.innerHTML = inputHtml;
-
-    let descHtml = '<h3>Node Descriptions:</h3><ul>';
-    Object.entries(context.node_descriptions).forEach(([node, desc]) => {
-        descHtml += `<li><strong>${node}</strong>: ${desc}</li>`;
-    });
-    descHtml += '</ul>';
-    descriptionsDiv.innerHTML = descHtml;
-
-    let structureHtml = '<h3>Node Dependencies (DAG):</h3><pre>';
-    Object.entries(context.node_dependencies).forEach(([node, parents]) => {
-        structureHtml += `${node} <- ${parents.join(', ')}\n`;
-    });
-    structureHtml += '</pre>';
-    structureDiv.innerHTML = structureHtml;
-
-    let rulesHtml = '<h3>Qualitative Rules Provided:</h3><ul>';
-    context.qualitative_rules.forEach(rule => {
-        rulesHtml += `<li><strong>${rule.node}</strong> (${rule.description}): ${rule.qualitative || 'No specific rule provided.'}</li>`;
-    });
-    rulesHtml += '</ul>';
-    rulesDiv.innerHTML = rulesHtml;
-}
-
-// --- Function to gather inputs and fetch predictions from backend ---
-async function fetchAndUpdateLLM() {
-    const inputData = {
-        A1: parseFloat(document.getElementById('input-A1').value) || 0.5,
-        A2: parseFloat(document.getElementById('input-A2').value) || 0.5,
-        A3: parseFloat(document.getElementById('input-A3').value) || 0.5,
-        A4: parseFloat(document.getElementById('input-A4').value) || 0.5,
-        A5: parseFloat(document.getElementById('input-A5').value) || 0.5,
-        UI: parseFloat(document.getElementById('input-UI').value) || 0.5,
-        H: parseFloat(document.getElementById('input-H').value) || 0.5,
+    const payload = {
+        input_values: inputData.input_values,
+        graph_structure: currentConfig.graph_structure // Send the current graph structure
     };
 
     const updateButton = document.getElementById('update-button');
     updateButton.disabled = true;
     updateButton.textContent = 'Updating...';
     document.body.style.cursor = 'wait';
-
-    document.getElementById('input-context').innerHTML = '<h3>Input States Provided:</h3><p>Updating...</p>';
-    document.getElementById('structure-context').innerHTML = '<h3>Node Dependencies (DAG):</h3><p>Updating...</p>';
-    document.getElementById('rules-context').innerHTML = '<h3>Qualitative Rules Provided:</h3><p>Updating...</p>';
-    document.getElementById('node-descriptions-context').innerHTML = '<h3>Node Descriptions:</h3><p>Updating...</p>';
+    clearLLMContextDisplay(); // Clear previous context
 
     try {
         const response = await fetch('/api/predict_openai_bn_single_call', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(inputData)
+            body: JSON.stringify(payload)
         });
 
         if (!response.ok) {
-            let errorDetail = `HTTP error! status: ${response.status}`;
-            try {
-                const errorData = await response.json();
-                errorDetail += `, detail: ${errorData.detail || JSON.stringify(errorData)}`;
-            } catch (e) {
-                errorDetail += `, response text: ${await response.text()}`;
-            }
-            throw new Error(errorDetail);
+             let errorDetail = `HTTP error! status: ${response.status}`;
+             try { const errorData = await response.json(); errorDetail += `, detail: ${errorData.detail || JSON.stringify(errorData)}`; }
+             catch (e) { errorDetail += `, response text: ${await response.text()}`; }
+             throw new Error(errorDetail);
         }
 
         const result = await response.json();
-        const allNodeProbabilities = result.probabilities;
-        const llmContext = result.llm_context;
-
-        updateNodeProbabilities(allNodeProbabilities);
-        displayLLMContext(llmContext);
+        updateNodeProbabilities(result.probabilities);
+        displayLLMContext(result.llm_context);
+        logPrediction(inputData.input_values, result.probabilities); // Log the result
 
     } catch (error) {
         console.error('Error fetching LLM predictions:', error);
         alert(`Error fetching predictions:\n${error.message}`);
-        document.getElementById('input-context').innerHTML = '<h3>Input States Provided:</h3><p style="color:red;">Error loading context.</p>';
-        document.getElementById('structure-context').innerHTML = '';
-        document.getElementById('rules-context').innerHTML = '';
-        document.getElementById('node-descriptions-context').innerHTML = '';
+        clearLLMContextDisplayOnError();
     } finally {
         updateButton.disabled = false;
         updateButton.textContent = 'Update Probabilities';
@@ -267,77 +341,215 @@ async function fetchAndUpdateLLM() {
     }
 }
 
-// --- Add event listeners ---
-document.getElementById('update-button').addEventListener('click', fetchAndUpdateLLM);
+// --- Node Appearance Update ---
 
-// Add listener for gradient toggle
-document.getElementById('gradient-toggle').addEventListener('change', () => {
-    // Re-run updateNodeProbabilities with current probabilities to apply new coloring
+function updateNodeProbabilities(probabilities) {
+     if (!cy) return;
+    const useGradient = document.getElementById('gradient-toggle').checked;
+
     cy.nodes().forEach(node => {
         const nodeId = node.id();
-        const prob = node.data('currentProbLabel') ? parseFloat(node.data('currentProbLabel').replace('P(1)=', '')) : null;
-        const probabilities = prob ? { [nodeId]: { "1": prob } } : {};
-        updateNodeProbabilities(probabilities);
-    });
-});
+        const nodeType = node.data('nodeType'); // Get type ('input' or 'hidden')
+        let probState1 = null;
 
-// --- Initialize node appearance and layout on page load ---
-cy.ready(function() {
-    console.log("Cytoscape instance is ready. Attempting to run initial layout.");
-    let layoutSuccess = false;
-
-    if (typeof window.cola !== 'undefined') {
-        try {
-            cy.layout({
-                name: 'cola',
-                animate: true,
-                ungrabifyWhileSimulating: false,
-                nodeSpacing: 40,
-                edgeLength: 150,
-                padding: 20,
-                randomize: false
-            }).run();
-            console.log("Initial Cola layout run initiated.");
-            layoutSuccess = true;
-        } catch (colaError) {
-            console.error("ERROR running initial Cola layout:", colaError);
-            alert("Cola layout failed. Falling back to Dagre layout.");
+        // Check if probability data exists for this node
+        if (probabilities && probabilities[nodeId] && probabilities[nodeId]["1"] !== undefined) {
+             probState1 = probabilities[nodeId]["1"];
+            node.data('currentProbLabel', `P(1)=${probState1.toFixed(3)}`);
+        } else if (nodeType === 'input') {
+            // For input nodes, display their set value if probabilities object is null (initial load/redraw)
+            const inputElement = document.getElementById(`input-${nodeId}`);
+            if (inputElement) {
+                 probState1 = parseFloat(inputElement.value) || 0.5;
+                  node.data('currentProbLabel', `P(1)=${probState1.toFixed(3)}`);
+            } else {
+                 node.data('currentProbLabel', '(N/A)');
+            }
         }
-    } else {
-        console.warn("Cola layout not available. Falling back to Dagre layout.");
-    }
-
-    if (!layoutSuccess) {
-        try {
-            cy.layout({
-                name: 'dagre',
-                rankDir: 'TB',
-                spacingFactor: 1.2,
-                animate: true,
-                padding: 20
-            }).run();
-            console.log("Fallback Dagre layout run initiated.");
-            layoutSuccess = true;
-        } catch (dagreError) {
-            console.error("ERROR running fallback Dagre layout:", dagreError);
-            alert("Fallback Dagre layout also failed. Graph display might be broken.");
+         else {
+            // Hidden node with no probability yet
+            node.data('currentProbLabel', '(N/A)');
         }
-    }
 
-    try {
-        updateNodeProbabilities({});
-        console.log("Initial node probabilities set.");
-        displayLLMContext({
-            input_states: [{ node: 'Loading...', description: '', value: 0, state: '' }],
-            node_dependencies: { 'Loading...': [] },
-            qualitative_rules: [{ node: 'Loading...', description: '', qualitative: '' }],
-            node_descriptions: { 'Loading...': 'Loading...' }
+        // Determine base color by type
+        let baseBgColor = '#ccc'; // Default grey
+        let textColor = '#333';
+        if (nodeType === 'input') {
+            baseBgColor = '#add8e6'; // Light blue for inputs
+        } else if (nodeType === 'hidden') {
+            // Style change: hidden nodes now look like this (was pink)
+             baseBgColor = '#f0e68c'; // Khaki for hidden/intermediate
+        }
+         // No specific output color anymore
+
+        // Apply coloring based on toggle and probability
+        let finalBgColor = baseBgColor;
+        if (probState1 !== null) { // Only apply special colors if probability exists
+            if (useGradient) {
+                // Low prob -> red, high prob -> green gradient
+                finalBgColor = `rgb(${Math.round(255 * (1 - probState1))}, ${Math.round(255 * probState1)}, 0)`;
+                textColor = '#333'; // Ensure readability on gradient
+            } else {
+                // Clean coloring: dark purple background, white text
+                finalBgColor = '#4B0082'; // Dark purple
+                textColor = '#FFFFFF'; // White text
+            }
+        } else {
+            // If no probability, revert to base color (unless clean mode is on)
+            if (!useGradient) {
+                 finalBgColor = '#4B0082'; // Dark purple
+                 textColor = '#FFFFFF'; // White text
+            }
+        }
+
+        node.style({
+            'background-color': finalBgColor,
+            'color': textColor
         });
-        console.log("Initial LLM context placeholder set.");
-    } catch (initError) {
-        console.error("ERROR setting initial node probabilities or context:", initError);
-        alert("Error initializing graph data. Check the console for details.");
-    }
-});
+         node.trigger('style'); // Force label redraw
+    });
+}
 
-console.log("Initial script execution finished. Waiting for cy.ready().");
+// --- LLM Context Display ---
+
+function displayLLMContext(context) {
+    if (!context) return;
+    const inputDiv = document.getElementById('input-context');
+    const structureDiv = document.getElementById('structure-context');
+    const rulesDiv = document.getElementById('rules-context');
+    const descriptionsDiv = document.getElementById('node-descriptions-context');
+
+    // Input States
+    let inputHtml = '<h3>Input States Provided:</h3><ul>';
+    (context.input_states || []).forEach(input => {
+        inputHtml += `<li><strong>${input.node}</strong> (${input.description || 'N/A'}): ${input.state} (prob approx ${input.value.toFixed(2)})</li>`;
+    });
+    inputHtml += '</ul>';
+    inputDiv.innerHTML = inputHtml || '<p>No input states provided to LLM.</p>';
+
+    // Node Descriptions
+    let descHtml = '<h3>Node Descriptions:</h3><ul>';
+    Object.entries(context.node_descriptions || {}).forEach(([node, desc]) => {
+        descHtml += `<li><strong>${node}</strong>: ${desc}</li>`;
+    });
+    descHtml += '</ul>';
+    descriptionsDiv.innerHTML = descHtml || '<p>No node descriptions provided to LLM.</p>';
+
+    // Dependencies
+    let structureHtml = '<h3>Node Dependencies (DAG):</h3><pre>';
+    Object.entries(context.node_dependencies || {}).forEach(([node, parents]) => {
+        structureHtml += `${node} <- ${parents.join(', ') || '(Input Node)'}\n`;
+    });
+    structureHtml += '</pre>';
+    structureDiv.innerHTML = structureHtml || '<p>No dependencies provided to LLM.</p>';
+
+    // Qualitative Rules
+    let rulesHtml = '<h3>Qualitative Rules Provided:</h3><ul>';
+    (context.qualitative_rules || []).forEach(rule => {
+        rulesHtml += `<li><strong>${rule.node}</strong>: ${rule.qualitative || 'Generic influence.'}</li>`;
+    });
+    rulesHtml += '</ul>';
+    rulesDiv.innerHTML = rulesHtml || '<p>No specific qualitative rules provided to LLM.</p>';
+}
+
+function clearLLMContextDisplay() {
+     document.getElementById('input-context').innerHTML = '<h3>Input States Provided:</h3><p>Updating...</p>';
+     document.getElementById('structure-context').innerHTML = '<h3>Node Dependencies (DAG):</h3><p>Updating...</p>';
+     document.getElementById('rules-context').innerHTML = '<h3>Qualitative Rules Provided:</h3><p>Updating...</p>';
+     document.getElementById('node-descriptions-context').innerHTML = '<h3>Node Descriptions:</h3><p>Updating...</p>';
+}
+function clearLLMContextDisplayOnError() {
+     document.getElementById('input-context').innerHTML = '<h3>Input States Provided:</h3><p style="color:red;">Error fetching prediction context.</p>';
+     document.getElementById('structure-context').innerHTML = '';
+     document.getElementById('rules-context').innerHTML = '';
+     document.getElementById('node-descriptions-context').innerHTML = '';
+}
+
+
+// --- Session Logging ---
+
+function logPrediction(inputs, probabilities) {
+    const timestamp = new Date().toISOString();
+    const logEntry = {
+        timestamp: timestamp,
+        configId: currentConfig.id || "unsaved",
+        configName: currentConfig.name,
+        inputs: { ...inputs }, // Clone input values
+        probabilities: {} // Store P(1) for all nodes
+    };
+
+    // Extract P(1) for all nodes from the result
+    for (const nodeId in probabilities) {
+        logEntry.probabilities[nodeId] = probabilities[nodeId]["1"];
+    }
+     // Add input node values to probabilities as well for complete record
+     for (const inputId in inputs) {
+         if (!(inputId in logEntry.probabilities)) {
+             logEntry.probabilities[inputId] = inputs[inputId];
+         }
+     }
+
+
+    sessionLog.push(logEntry);
+    document.getElementById('log-count').textContent = `Log entries this session: ${sessionLog.length}`;
+    console.log("Prediction logged to session:", logEntry);
+}
+
+function clearSessionLog() {
+    sessionLog = [];
+    document.getElementById('log-count').textContent = `Log entries this session: 0`;
+    console.log("Session log cleared.");
+}
+
+function downloadSessionLog() {
+    if (sessionLog.length === 0) {
+        alert("No data logged in this session yet.");
+        return;
+    }
+
+    console.log("Generating session log CSV...");
+
+    // Determine all unique node IDs across all log entries to create headers
+    const allNodeIds = new Set();
+    sessionLog.forEach(entry => {
+        Object.keys(entry.probabilities).forEach(nodeId => allNodeIds.add(nodeId));
+    });
+    const sortedNodeIds = Array.from(allNodeIds).sort();
+
+    const csvData = sessionLog.map(entry => {
+        const row = {
+            Timestamp: entry.timestamp,
+            ConfigID: entry.configId,
+            ConfigName: entry.configName,
+        };
+        // Add probability for each node, leave blank if not present in this entry
+        sortedNodeIds.forEach(nodeId => {
+            row[nodeId] = entry.probabilities[nodeId] !== undefined ? entry.probabilities[nodeId].toFixed(4) : '';
+        });
+        return row;
+    });
+
+    const csvHeaders = ["Timestamp", "ConfigID", "ConfigName", ...sortedNodeIds];
+
+    const csvString = Papa.unparse({
+        fields: csvHeaders,
+        data: csvData
+    });
+
+    // Trigger download
+    const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    const safeConfigName = (currentConfig.name || 'unsaved').replace(/[^a-z0-9]/gi, '_').toLowerCase();
+    const timestampStr = new Date().toISOString().replace(/[:.]/g, '-');
+    link.setAttribute("download", `bn_session_log_${safeConfigName}_${timestampStr}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    console.log("CSV download triggered.");
+}
+
+
+console.log("Initial script execution finished. Waiting for DOMContentLoaded.");
