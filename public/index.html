@@ -9,20 +9,12 @@
     <script src="https://cdn.jsdelivr.net/npm/webcola@3.4.0/WebCola/cola.min.js"></script>
     <script src="https://unpkg.com/cytoscape-cola@2.5.1/cytoscape-cola.js"></script>
     <script src="https://unpkg.com/cytoscape-dagre@2.5.0/cytoscape-dagre.js"></script>
-    <!-- PapaParse for client-side CSV generation -->
     <script src="https://unpkg.com/papaparse@5.3.2/papaparse.min.js"></script>
-
     <script>
         // Layout registration (unchanged)
-        console.log("Attempting to register Cytoscape Cola layout...");
-        if (typeof window.cola !== 'undefined' && typeof window.cytoscapeCola === 'function') {
-            try { cytoscape.use(cytoscapeCola); console.log("SUCCESS: Registered Cytoscape Cola layout."); }
-            catch (e) { console.error("ERROR: Failed to register Cytoscape Cola layout:", e); }
-        } else { console.warn("Cola or cytoscapeCola not available. Will attempt dagre."); }
-        if (typeof window.cytoscapeDagre === 'function') {
-            try { cytoscape.use(cytoscapeDagre); console.log("SUCCESS: Registered Cytoscape Dagre layout."); }
-            catch (e) { console.error("ERROR: Failed to register Cytoscape Dagre layout:", e); }
-        } else { console.warn("Cytoscape Dagre not available."); }
+        console.log("Registering layouts...");
+        try{ if(window.cola && window.cytoscapeCola) cytoscape.use(cytoscapeCola); } catch(e){ console.warn("Cola failed", e); }
+        try{ if(window.cytoscapeDagre) cytoscape.use(cytoscapeDagre); } catch(e){ console.warn("Dagre failed", e); }
     </script>
 </head>
 <body>
@@ -30,64 +22,71 @@
 
     <div class="config-manager">
         <h2>Configuration Management</h2>
-        <label for="config-name">Config Name:</label>
-        <input type="text" id="config-name" placeholder="Enter name to save">
-        <button id="save-config-button">Save Current Config</button>
-        <br>
-        <label for="load-config-select">Load Config:</label>
-        <select id="load-config-select">
-            <option value="">-- Select a config --</option>
-        </select>
-        <button id="load-config-button">Load Selected Config</button>
-        <p id="config-status"></p>
+        <div>
+            <label for="config-name">Config Name:</label>
+            <input type="text" id="config-name" placeholder="Enter name to save">
+            <button id="save-config-button" title="Save the current graph structure as a new configuration">Save Current Config</button>
+        </div>
+        <div>
+            <label for="load-config-select">Load/Manage Config:</label>
+            <select id="load-config-select">
+                <option value="">-- Select a config --</option>
+                <!-- Default config option added dynamically -->
+            </select>
+            <button id="load-config-button" title="Load the selected configuration into the graph viewer">Load Selected</button>
+            <button id="delete-config-button" title="Delete the selected configuration permanently">Delete Selected</button> <!-- Added Delete Button -->
+        </div>
+        <p id="config-status" class="status-message"></p> <!-- Added class -->
     </div>
 
     <div class="controls">
         <h2>Inputs (Probabilities 0.0 - 1.0)</h2>
         <div id="input-controls-container">
-            <!-- Input controls will be generated dynamically here -->
-            <p>Load a configuration or define a graph to see inputs.</p>
+            <p>Load a configuration or define graph to see inputs.</p>
         </div>
         <label for="gradient-toggle">Enable Gradient Coloring:</label>
         <input type="checkbox" id="gradient-toggle" checked><br>
-        <button id="update-button">Update Probabilities</button>
+        <button id="update-button" title="Run the LLM prediction with current inputs">Update Probabilities</button>
+        <p id="predict-status" class="status-message"></p> <!-- Added predict status -->
     </div>
 
     <div id="cy"></div>
 
     <div class="logging-controls">
-      <h2>Session Logging</h2>
+      <h2>Logging</h2>
        <p>Current Config: <strong id="current-config-name">None</strong></p>
-      <button id="download-session-log-button">Download Current Session Log (CSV)</button>
+      <button id="download-session-log-button" title="Download predictions made in this browser session">Download Session Log (CSV)</button>
+       <button id="download-all-log-button" title="Download all historical predictions for the currently loaded configuration (requires saved config)">Download All Logs for Config (CSV)</button> <!-- Added All Logs Button -->
       <p id="log-count">Log entries this session: 0</p>
     </div>
 
+    <!-- Changed section title and content -->
     <div class="llm-context">
-        <h2>LLM Context (Provided to the Model)</h2>
-        <div id="input-context">
-            <h3>Input States Provided:</h3>
-            <p>Run prediction to see context.</p>
+        <h2>LLM Reasoning</h2>
+        <div id="llm-reasoning-content">
+             <p>Run prediction to see LLM reasoning.</p>
         </div>
-        <div id="structure-context">
-            <h3>Node Dependencies (DAG):</h3>
-            <p>Run prediction to see context.</p>
-        </div>
-        <div id="rules-context">
-            <h3>Qualitative Rules Provided:</h3>
-            <p>Run prediction to see context.</p>
-        </div>
-        <div id="node-descriptions-context">
-            <h3>Node Descriptions:</h3>
-            <p>Run prediction to see context.</p>
-        </div>
+        <details>
+            <summary>Show LLM Input Context</summary>
+            <div id="input-context">
+                <h3>Input States Provided:</h3>
+                <p>Run prediction to see context.</p>
+            </div>
+            <div id="structure-context">
+                <h3>Node Dependencies (DAG):</h3>
+                <p>Run prediction to see context.</p>
+            </div>
+             <div id="node-descriptions-context">
+                 <h3>Node Descriptions:</h3>
+                 <p>Run prediction to see context.</p>
+            </div>
+        </details>
     </div>
 
-     <!-- Placeholder for Graph Editing UI (Requirement 1 - Deferred) -->
     <div class="graph-editor-placeholder">
         <h2>Graph Editor (Future Feature)</h2>
-        <p>Functionality to add/remove nodes and edges directly in the UI will be added later.</p>
-        <p>Currently, define graphs by modifying and saving configurations, or load existing ones.</p>
-        </div>
+        <p>Functionality to add/remove nodes and edges will be added later.</p>
+    </div>
 
     <script src="script.js"></script>
 </body>
