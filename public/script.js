@@ -51,7 +51,7 @@ function initializeCytoscape() {
         container: document.getElementById('cy'),
         elements: [],
         style: [
-            { selector: 'node', style: { 'background-color': '#ccc', 'label': nodeLabelFunc, 'width': 120, 'height': 120, 'shape': 'ellipse', 'text-valign': 'center', 'text-halign': 'center', 'font-size': '10px', 'font-weight': '200', 'text-wrap': 'wrap', 'text-max-width': 110, 'text-outline-color': '#fff', 'text-outline-width': 1, 'color': '#333', 'transition-property': 'background-color, color', 'transition-duration': '0.5s' } },
+            { selector: 'node', style: { 'background-color': '#ccc', 'label': nodeLabelFunc, 'width': 120, 'height': 120, 'shape': 'ellipse', 'text-valign': 'center', 'text-halign': 'center', 'font-size': '10px', 'font-weight': '150', 'text-wrap': 'wrap', 'text-max-width': 110, 'text-outline-color': '#fff', 'text-outline-width': 1, 'color': '#333', 'transition-property': 'background-color, color', 'transition-duration': '0.5s' } },
             { selector: 'node[nodeType="input"]', style: { 'shape': 'rectangle', 'width': 130, 'height': 70 } },
             { selector: 'node[nodeType="hidden"]', style: { 'shape': 'ellipse' } },
             { selector: 'edge', style: { 'width': 2, 'line-color': '#666', 'target-arrow-shape': 'triangle', 'target-arrow-color': '#666', 'curve-style': 'bezier' } }
@@ -59,82 +59,91 @@ function initializeCytoscape() {
         layout: { name: 'cola', animate: true, nodeSpacing: 50, edgeLength: 180, padding: 30 }
     });
 
-    // Initialize context menus for graph editing
-    cy.contextMenus({
-        menuItems: [
-            {
-                id: 'add-node',
-                content: 'Add Node',
-                selector: '*',
-                coreAsWell: true,
-                onClickFunction: (event) => {
-                    const pos = event.position || event.cyPosition;
-                    const nodeId = prompt("Enter node ID:");
-                    if (!nodeId || cy.getElementById(nodeId).length > 0) {
-                        alert("Invalid or duplicate node ID.");
-                        return;
-                    }
-                    const fullName = prompt("Enter node name:") || nodeId;
-                    const nodeType = prompt("Enter node type (input/hidden):") || "hidden";
-                    if (nodeType !== "input" && nodeType !== "hidden") {
-                        alert("Node type must be 'input' or 'hidden'.");
-                        return;
-                    }
-                    cy.add({
-                        group: 'nodes',
-                        data: { id: nodeId, fullName, nodeType },
-                        position: pos
-                    });
-                    runLayout();
-                    updateInputControls(cy.nodes().map(n => n.data()));
-                }
-            },
-            {
-                id: 'remove-node',
-                content: 'Remove Node',
-                selector: 'node',
-                onClickFunction: (event) => {
-                    const node = event.target;
-                    if (confirm(`Remove node ${node.id()}?`)) {
-                        node.remove();
+    // Initialize context menus for graph editing, with fallback
+    if (typeof cy.contextMenus === 'function') {
+        cy.contextMenus({
+            menuItems: [
+                {
+                    id: 'add-node',
+                    content: 'Add Node',
+                    selector: '*',
+                    coreAsWell: true,
+                    onClickFunction: (event) => {
+                        const pos = event.position || event.cyPosition;
+                        const nodeId = prompt("Enter node ID:");
+                        if (!nodeId || cy.getElementById(nodeId).length > 0) {
+                            alert("Invalid or duplicate node ID.");
+                            return;
+                        }
+                        const fullName = prompt("Enter node name:") || nodeId;
+                        const nodeType = prompt("Enter node type (input/hidden):") || "hidden";
+                        if (nodeType !== "input" && nodeType !== "hidden") {
+                            alert("Node type must be 'input' or 'hidden'.");
+                            return;
+                        }
+                        cy.add({
+                            group: 'nodes',
+                            data: { id: nodeId, fullName, nodeType },
+                            position: pos
+                        });
                         runLayout();
                         updateInputControls(cy.nodes().map(n => n.data()));
                     }
-                }
-            },
-            {
-                id: 'add-edge',
-                content: 'Add Edge',
-                selector: 'node',
-                onClickFunction: (event) => {
-                    const sourceNode = event.target;
-                    const targetId = prompt(`Enter target node ID for edge from ${sourceNode.id()}:`);
-                    if (!targetId || !cy.getElementById(targetId).length) {
-                        alert("Invalid target node ID.");
-                        return;
+                },
+                {
+                    id: 'remove-node',
+                    content: 'Remove Node',
+                    selector: 'node',
+                    onClickFunction: (event) => {
+                        const node = event.target;
+                        if (confirm(`Remove node ${node.id()}?`)) {
+                            node.remove();
+                            runLayout();
+                            updateInputControls(cy.nodes().map(n => n.data()));
+                        }
                     }
-                    cy.add({
-                        group: 'edges',
-                        data: { source: sourceNode.id(), target: targetId }
-                    });
-                    runLayout();
-                }
-            },
-            {
-                id: 'remove-edge',
-                content: 'Remove Edge',
-                selector: 'edge',
-                onClickFunction: (event) => {
-                    const edge = event.target;
-                    if (confirm(`Remove edge ${edge.source().id()} -> ${edge.target().id()}?`)) {
-                        edge.remove();
+                },
+                {
+                    id: 'add-edge',
+                    content: 'Add Edge',
+                    selector: 'node',
+                    onClickFunction: (event) => {
+                        const sourceNode = event.target;
+                        const targetId = prompt(`Enter target node ID for edge from ${sourceNode.id()}:`);
+                        if (!targetId || !cy.getElementById(targetId).length) {
+                            alert("Invalid target node ID.");
+                            return;
+                        }
+                        cy.add({
+                            group: 'edges',
+                            data: { source: sourceNode.id(), target: targetId }
+                        });
                         runLayout();
                     }
+                },
+                {
+                    id: 'remove-edge',
+                    content: 'Remove Edge',
+                    selector: 'edge',
+                    onClickFunction: (event) => {
+                        const edge = event.target;
+                        if (confirm(`Remove edge ${edge.source().id()} -> ${edge.target().id()}?`)) {
+                            edge.remove();
+                            runLayout();
+                        }
+                    }
                 }
-            }
-        ]
-    });
-    console.log("Cytoscape initialized with context menus.");
+            ]
+        });
+        console.log("Cytoscape context menus initialized.");
+    } else {
+        console.warn("Cytoscape context menus extension not available. Graph editing disabled.");
+        const graphEditor = document.querySelector('.graph-editor p');
+        if (graphEditor) {
+            graphEditor.textContent = "Graph editing unavailable due to missing context menus extension. Load a saved configuration or use the default graph.";
+            graphEditor.style.color = '#dc3545';
+        }
+    }
 }
 
 function nodeLabelFunc(node) {
