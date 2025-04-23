@@ -3,17 +3,18 @@ body {
     font-family: sans-serif;
     display: flex;
     flex-direction: column;
-    align-items: center; /* Corrected typo */
+    align-items: center;
     margin: 0;
     padding: 20px;
     background-color: #f4f4f4;
 }
-
 h1, h2, h3 {
     color: #333;
+    text-align: center;
 }
 
-.controls {
+/* Section Styling */
+.config-manager, .controls, .logging-controls, .llm-context, .graph-editor {
     margin-bottom: 20px;
     padding: 20px;
     border: 1px solid #ccc;
@@ -21,51 +22,119 @@ h1, h2, h3 {
     background-color: #fff;
     box-shadow: 0 2px 5px rgba(0,0,0,0.1);
     width: 90%;
-    max-width: 760px; /* Align with graph max-width */
+    max-width: 800px;
 }
 
-.controls label {
+/* Form Element Styling */
+label {
     display: inline-block;
-    width: 180px; /* Adjust as needed for labels */
     margin-bottom: 8px;
     font-weight: bold;
     color: #555;
+    min-width: 150px;
+    vertical-align: middle;
 }
-
-.controls input[type=number] {
-    width: 80px; /* Adjust as needed */
-    padding: 5px;
+input[type=text], input[type=number], select {
+    padding: 8px;
     border: 1px solid #ccc;
     border-radius: 4px;
+    margin-right: 10px;
+    margin-bottom: 10px;
+    vertical-align: middle;
 }
-
-.controls button {
-    display: block;
-    margin-top: 15px;
-    padding: 10px 20px;
+input[type=number] {
+    width: 80px;
+}
+button {
+    padding: 10px 15px;
     background-color: #007bff;
     color: white;
     border: none;
     border-radius: 5px;
     cursor: pointer;
-    font-size: 16px;
+    font-size: 14px;
     transition: background-color 0.3s ease;
+    margin-right: 10px;
+    margin-top: 5px;
+    vertical-align: middle;
 }
-
-.controls button:hover {
+button:hover {
     background-color: #0056b3;
 }
-
-.controls button:disabled {
+button:disabled {
     background-color: #cccccc;
     cursor: not-allowed;
 }
 
+/* Specific Controls & Buttons */
+.config-manager div {
+    margin-bottom: 10px;
+}
+.controls #input-controls-container {
+    margin-bottom: 15px;
+    max-height: 150px;
+    overflow-y: auto;
+    border: 1px solid #eee;
+    padding: 10px;
+}
+.controls label {
+    width: 180px;
+}
+#set-default-button {
+    background-color: #28a745;
+}
+#set-default-button:hover {
+    background-color: #218838;
+}
+#delete-config-button {
+    background-color: #dc3545;
+}
+#delete-config-button:hover {
+    background-color: #c82333;
+}
 
+/* Status Messages */
+.status-message {
+    margin-top: 10px;
+    font-style: italic;
+    min-height: 1.2em;
+}
+#config-status.success, #predict-status.success {
+    color: green;
+}
+#config-status.error, #predict-status.error {
+    color: red;
+}
+#config-status.loading, #predict-status.loading {
+    color: #666;
+}
+
+/* Loading Spinner */
+.spinner {
+    border: 4px solid #f3f3f3;
+    border-top: 4px solid #007bff;
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    animation: spin 1s linear infinite;
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+}
+@keyframes spin {
+    0% { transform: translate(-50%, -50%) rotate(0deg); }
+    100% { transform: translate(-50%, -50%) rotate(360deg); }
+}
+.hidden {
+    display: none;
+}
+
+/* Cytoscape Container */
 #cy {
     width: 90%;
-    max-width: 800px; /* Adjust as needed */
-    height: 700px;    /* Adjust as needed */
+    max-width: 800px;
+    height: 550px;
     border: 1px solid #ccc;
     background-color: #fff;
     box-shadow: 0 2px 5px rgba(0,0,0,0.1);
@@ -73,37 +142,66 @@ h1, h2, h3 {
     margin: 20px auto;
 }
 
+/* LLM Context & Reasonings */
 .llm-context {
-    margin-top: 30px;
-    padding: 20px;
-    border: 1px solid #ccc;
-    border-radius: 8px;
-    background-color: #fff;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-    width: 90%;
-    max-width: 800px;
-    word-wrap: break-word; /* Prevent overflow */
+    word-wrap: break-word;
 }
-
+.llm-context h2 {
+    margin-bottom: 15px;
+}
+#llm-reasoning-content {
+    background-color: #f8f9fa;
+    border: 1px solid #eee;
+    padding: 15px;
+    border-radius: 5px;
+    margin-bottom: 15px;
+    min-height: 50px;
+    white-space: pre-wrap;
+}
+.llm-context details {
+    border: 1px solid #eee;
+    padding: 10px;
+    border-radius: 4px;
+}
+.llm-context summary {
+    cursor: pointer;
+    font-weight: bold;
+    color: #0056b3;
+}
 .llm-context h3 {
     margin-top: 15px;
     margin-bottom: 10px;
     color: #0056b3;
+    font-size: 1.1em;
 }
-
 .llm-context h3:first-child {
     margin-top: 0;
 }
-
 .llm-context p, .llm-context ul, .llm-context pre {
     margin-bottom: 10px;
     color: #333;
-    white-space: pre-wrap; /* Preserve formatting and wrap */
+    white-space: pre-wrap;
+    font-size: 0.95em;
 }
-
 .llm-context pre {
     background-color: #f0f0f0;
     padding: 10px;
     border-radius: 4px;
-    overflow-x: auto; /* Scroll for long lines in code blocks */
+    overflow-x: auto;
+}
+
+/* Graph Editor */
+.graph-editor {
+    background-color: #fff;
+}
+.graph-editor p {
+    color: #555;
+}
+
+/* Logging */
+.logging-controls p {
+    color: #555;
+}
+#log-count {
+    font-weight: bold;
 }
