@@ -552,4 +552,126 @@ function displayLLMContext(context) {
     const inputDiv = document.getElementById('input-context');
     const structureDiv = document.getElementById('structure-context');
     const descriptionsDiv = document.getElementById('node-descriptions-context');
-    let iHtml
+
+    let iHtml = '<ul>';
+    (context.input_states || []).forEach(state => {
+        iHtml += `<li>${state.node} (${state.description}): ${state.state} (P(1)=${state.value.toFixed(2)})</li>`;
+    });
+    iHtml += '</ul>';
+    inputDiv.innerHTML = context.input_states && context.input_states.length > 0 ? iHtml : '<p>No input states provided.</p>';
+
+    let sHtml = '<ul>';
+    Object.entries(context.node_dependencies || {}).forEach(([node, parents]) => {
+        sHtml += `<li>${node}: ${parents.length > 0 ? parents.join(', ') : 'None'}</li>`;
+    });
+    sHtml += '</ul>';
+    structureDiv.innerHTML = context.node_dependencies ? sHtml : '<p>No dependencies provided.</p>';
+
+    let dHtml = '<ul>';
+    Object.entries(context.node_descriptions || {}).forEach(([node, desc]) => {
+        dHtml += `<li>${node}: ${desc}</li>`;
+    });
+    dHtml += '</ul>';
+    descriptionsDiv.innerHTML = context.node_descriptions ? dHtml : '<p>No descriptions provided.</p>';
+}
+
+function setStatusMessage(elementId, message, statusType) {
+    const element = document.getElementById(elementId);
+    element.textContent = message;
+    element.classList.remove('success', 'error', 'loading');
+    if (statusType) {
+        element.classList.add(statusType);
+    }
+}
+
+async function retryFetch(fetchFn, maxRetries, onRetry) {
+    let lastError;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            await fetchFn();
+            return;
+        } catch (error) {
+            lastError = error;
+            console.warn(`Attempt ${attempt} failed: ${error.message}`);
+            if (attempt < maxRetries && onRetry) {
+                onRetry();
+                await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+            }
+        }
+    }
+    throw lastError;
+}
+
+function logPrediction(inputs, probabilities) {
+    const logEntry = {
+        timestamp: new Date().toISOString(),
+        configId: currentConfig ? currentConfig.id : "unknown",
+        configName: currentConfig ? currentConfig.name : "Unknown",
+        inputs: { ...inputs },
+        probabilities: { ...probabilities }
+    };
+    sessionLog.push(logEntry);
+    document.getElementById('log-count').textContent = `Log entries this session: ${sessionLog.length}`;
+}
+
+function clearSessionLog() {
+    sessionLog = [];
+    document.getElementById('log-count').textContent = `Log entries this session: 0`;
+}
+
+function clearLLMOutputs() {
+    document.getElementById('llm-reasoning-content').textContent = "Run prediction to see LLM reasonings.";
+    document.getElementById('input-context').innerHTML = "<p>Run prediction to see context.</p>";
+    document.getElementById('structure-context').innerHTML = "<p>Run prediction to see context.</p>";
+    document.getElementById('node-descriptions-context').innerHTML = "<p>Run prediction to see context.</p>";
+}
+
+function downloadSessionLog() {
+    if (sessionLog.length === 0) {
+        alert("No session logs to download.");
+        return;
+    }
+    const headers = ['Timestamp', 'ConfigID', 'ConfigName', 'NodeID', 'ProbabilityP1'];
+    const rows = [];
+    sessionLog.forEach(log => {
+        Object.entries(log.probabilities).forEach(([nodeId, probs]) => {
+            rows.push([log.timestamp, log.configId, log.configName, nodeId, probs["1"].toFixed(4)]);
+        });
+    });
+    const csvContent = [headers, ...rows].map(row => row.join(',')).join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `session_log_${new Date().toISOString().replace(/[:.]/g, '-')}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+async function downloadAllLogs() {
+    if (!currentConfig || !currentConfig.id || currentConfig.id === "unknown" || currentConfig.id === "default-config-001") {
+        alert("Select a saved config to download logs.");
+        return;
+    }
+    setStatusMessage('predict-status', "Downloading logs...", "loading");
+    showSpinner(true);
+    enableUI(false);
+    await retryFetch(async () => {
+        const response = await fetch(`/api/download_log/${currentConfig.id}`);
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ detail: `HTTP error ${response.status}` }));
+            throw new Error(errorData.detail || `HTTP error ${response.status}`);
+        }
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `log_${currentConfig.id.replace('bn_config:', '')}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+        setStatusMessage('predict-status', "Log downloaded.", "success");
+    }, 3, () => setStatusMessage('predict-status', "Download failed. Retrying...", "error")).finally(() => {
+        enableUI(true);
+        showSpinner(false);
+    });
+}
