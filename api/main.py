@@ -19,6 +19,7 @@ try:
     import openai
     from dotenv import load_dotenv
     import redis
+    from redis.connection import ConnectionPool
     from vercel_blob import put as blob_put, head as blob_head, download as blob_download, delete as blob_delete
     print("--- DEBUG: Imported FastAPI, CORS, Pydantic, OpenAI, Redis, Vercel Blob ---", flush=True)
 
@@ -47,18 +48,34 @@ load_dotenv()
 openai_api_key = os.getenv("OPENAI_API_KEY")
 redis_url = os.getenv("UPSTASH_REDIS_URL") or os.getenv("REDIS_URL")
 
-# Redis Connection
+# Redis Connection with Connection Pool
 redis_client = None
+redis_pool = None
 if redis_url:
     try:
-        redis_client = redis.from_url(redis_url, decode_responses=True)
+        redis_pool = ConnectionPool.from_url(redis_url, decode_responses=True)
+        redis_client = redis.Redis(connection_pool=redis_pool)
         redis_client.ping()
         logger.info("--- Successfully connected to Redis ---")
     except redis.ConnectionError as e:
         logger.error(f"--- Failed to connect to Redis: {e} ---", exc_info=True)
         redis_client = None
+        redis_pool = None
 else:
     logger.warning("--- Redis URL not found. Config storage disabled. ---")
+
+def reconnect_redis():
+    global redis_client, redis_pool
+    if redis_url and not redis_client:
+        try:
+            redis_pool = ConnectionPool.from_url(redis_url, decode_responses=True)
+            redis_client = redis.Redis(connection_pool=redis_pool)
+            redis_client.ping()
+            logger.info("--- Reconnected to Redis ---")
+        except redis.ConnectionError as e:
+            logger.error(f"--- Failed to reconnect to Redis: {e} ---", exc_info=True)
+            redis_client = None
+            redis_pool = None
 
 if not openai_api_key:
     logger.warning("OPENAI_API_KEY environment variable not found.")
@@ -401,17 +418,22 @@ async def get_default_configuration():
     logger.info("Serving default configuration.")
     if redis_client:
         try:
-            default_id = redis_client.get(DEFAULT_CONFIG_KEY)
-            if default_id:
-                config_json = redis_client.get(default_id)
-                if config_json:
-                    return json.loads(config_json)
+            reconnect_redis()  # Attempt to reconnect if connection is lost
+            if redis_client:
+                default_id = redis_client.get(DEFAULT_CONFIG_KEY)
+                if default_id:
+                    config_json = redis_client.get(default_id)
+                    if config_json:
+                        return json.loads(config_json)
         except redis.RedisError as e:
-            logger.error(f"Error fetching default config from Redis: {e}")
+            logger.error(f"Error fetching default config from Redis: {e}", exc_info=True)
+    logger.info("Returning hardcoded default configuration due to Redis unavailability.")
     return DEFAULT_GRAPH_STRUCTURE
 
 @app.post("/api/configs", status_code=201)
 async def save_configuration(payload: SaveConfigPayload):
+    if not redis_client:
+        reconnect_redis()
     if not redis_client:
         raise HTTPException(status_code=503, detail="Storage connection unavailable.")
     is_valid_dag, cycle_info = is_dag(payload.graph_structure)
@@ -426,30 +448,39 @@ async def save_configuration(payload: SaveConfigPayload):
         return {"message": "Configuration saved", "config_id": config_id, "config_name": payload.config_name}
     except redis.RedisError as e:
         logger.error(f"Error saving to Redis: {e}", exc_info=True)
-        raisedigraph
         raise HTTPException(status_code=500, detail=f"Failed to save: {e}")
 
 @app.get("/api/configs", response_model=List[Dict[str, str]])
 async def list_configurations():
+    logger.info("Listing configurations.")
     if not redis_client:
-        raise HTTPException(status_code=503, detail="Storage connection unavailable.")
+        reconnect_redis()
+    if not redis_client:
+        logger.warning("Redis unavailable. Returning empty config list.")
+        return []
     try:
         config_keys = [key for key in redis_client.scan_iter(match=f"{CONFIG_KEY_PREFIX}*")]
         configs_summary = []
         for key in config_keys:
-            config_json = redis_client.get(key)
-            if config_json:
-                config_data = json.loads(config_json)
-                configs_summary.append({"id": config_data.get("id", key), "name": config_data.get("name", "Unnamed")})
-            else:
+            try:
+                config_json = redis_client.get(key)
+                if config_json:
+                    config_data = json.loads(config_json)
+                    configs_summary.append({"id": config_data.get("id", key), "name": config_data.get("name", "Unnamed")})
+                else:
+                    configs_summary.append({"id": key, "name": "*Load Error*"})
+            except (redis.RedisError, json.JSONDecodeError) as e:
+                logger.error(f"Error processing config {key}: {e}", exc_info=True)
                 configs_summary.append({"id": key, "name": "*Load Error*"})
         return configs_summary
     except redis.RedisError as e:
         logger.error(f"Error listing configs: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to list: {e}")
+        return []
 
 @app.get("/api/configs/{config_id}", response_model=Dict[str, Any])
 async def load_configuration(config_id: str):
+    if not redis_client:
+        reconnect_redis()
     if not redis_client:
         raise HTTPException(status_code=503, detail="Storage connection unavailable.")
     config_id_with_prefix = config_id if config_id.startswith(CONFIG_KEY_PREFIX) else f"{CONFIG_KEY_PREFIX}{config_id}"
@@ -467,6 +498,8 @@ async def load_configuration(config_id: str):
 
 @app.delete("/api/configs/{config_id}", status_code=200)
 async def delete_configuration(config_id: str):
+    if not redis_client:
+        reconnect_redis()
     if not redis_client:
         raise HTTPException(status_code=503, detail="Storage connection unavailable.")
     config_id_with_prefix = config_id if config_id.startswith(CONFIG_KEY_PREFIX) else f"{CONFIG_KEY_PREFIX}{config_id}"
@@ -487,6 +520,8 @@ async def delete_configuration(config_id: str):
 
 @app.post("/api/configs/set_default", status_code=200)
 async def set_default_configuration(config_id: str = Body(...)):
+    if not redis_client:
+        reconnect_redis()
     if not redis_client:
         raise HTTPException(status_code=503, detail="Storage connection unavailable.")
     config_id_with_prefix = config_id if config_id.startswith(CONFIG_KEY_PREFIX) else f"{CONFIG_KEY_PREFIX}{config_id}"
