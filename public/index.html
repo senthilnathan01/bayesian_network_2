@@ -3,20 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dynamic LLM Bayesian Network</title>
+    <title>LLM based Bayesian Network</title>
     <link rel="stylesheet" href="style.css">
-    <script src="https://unpkg.com/cytoscape@3.23.0/dist/cytoscape.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/cytoscape@3.23.0/dist/cytoscape.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/webcola@3.4.0/WebCola/cola.min.js"></script>
-    <script src="https://unpkg.com/cytoscape-cola@2.5.1/cytoscape-cola.js"></script>
-    <script src="https://unpkg.com/cytoscape-dagre@2.5.0/cytoscape-dagre.js"></script>
-    <script src="https://unpkg.com/papaparse@5.3.2/papaparse.min.js"></script>
-    <script src="https://unpkg.com/cytoscape-context-menus@2.1.0/cytoscape-context-menus.min.js"></script>
-    <script>
-        console.log("Registering layouts...");
-        try { if (window.cola && window.cytoscapeCola) cytoscape.use(cytoscapeCola); } catch (e) { console.warn("Cola failed", e); }
-        try { if (window.cytoscapeDagre) cytoscape.use(cytoscapeDagre); } catch (e) { console.warn("Dagre failed", e); }
-        try { if (window.cytoscapeContextMenus) cytoscape.use(cytoscapeContextMenus); } catch (e) { console.warn("Context Menus failed", e); }
-    </script>
+    <script src="https://cdn.jsdelivr.net/npm/cytoscape-cola@2.5.1/cytoscape-cola.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/cytoscape-dagre@2.5.0/cytoscape-dagre.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.3.2/papaparse.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/cytoscape-context-menus@2.1.0/cytoscape-context-menus.min.js"></script>
 </head>
 <body>
     <h1>Dynamic LLM-Powered Cognitive Network</h1>
