@@ -9,6 +9,7 @@ from datetime import datetime
 import io
 import csv
 import aiohttp
+from aiohttp import ClientTimeout
 
 print("--- DEBUG: api/main.py TOP LEVEL EXECUTION ---", flush=True)
 
@@ -239,7 +240,7 @@ def get_dynamic_node_info(graph: GraphStructure):
 
     return node_parents, node_descriptions, node_types, all_nodes, target_nodes, input_nodes
 
-def call_openai_for_probabilities(input_states: Dict[str, float], graph: GraphStructure) -> Dict[str, float]:
+async def call_openai_for_probabilities(input_states: Dict[str, float], graph: GraphStructure) -> Dict[str, float]:
     if not openai_api_key:
         raise HTTPException(status_code=500, detail="OpenAI API key not configured")
     openai.api_key = openai_api_key
@@ -260,26 +261,19 @@ def call_openai_for_probabilities(input_states: Dict[str, float], graph: GraphSt
     if not target_nodes:
         return {}
 
-    # Enhanced prompt with detailed node and relationship descriptions
+    # Simplified node info for prompt
     node_info = []
-    for node_id in node_descriptions:
+    for node_id in target_nodes:
         parents = node_parents.get(node_id, [])
-        node_type = "input" if node_id in input_nodes else "hidden"
-        parent_desc = ", ".join([f"{p} ({node_descriptions.get(p, p)})" for p in parents]) if parents else "none"
-        node_info.append(f"- {node_id} ({node_descriptions[node_id]}): {node_type} node, influenced by {parent_desc}")
-    structure_description = f"""
-    Bayesian Network Structure:
-    Nodes and Relationships:
-    { '\n'.join(node_info) }
-    """
+        parent_desc = ", ".join([node_descriptions.get(p, p) for p in parents]) if parents else "none"
+        node_info.append(f"- {node_id} ({node_descriptions[node_id]}): influenced by {parent_desc}")
+    structure_description = f"Nodes:\n{ '\n'.join(node_info) }"
 
     system_message = """
-    You are an expert probabilistic reasoner modeling a Bayesian Network for cognitive processes.
-    You are given a Directed Acyclic Graph (DAG) with nodes representing cognitive factors or actions.
-    Each node is binary (states 0 or 1), and you must estimate P(Node=1) for all 'hidden' nodes based on the provided P(Node=1) for 'input' nodes.
-    Use the node descriptions and their dependency relationships to infer how input probabilities propagate through the network.
-    Consider the semantic meaning of each node and its parents to make informed estimates.
-    Return a JSON object mapping each hidden node to its estimated P(Node=1) (float, 0.0 to 1.0).
+    You are an expert probabilistic reasoner modeling a Bayesian Network.
+    Given a Directed Acyclic Graph (DAG) with binary nodes (states 0 or 1), estimate P(Node=1) for hidden nodes based on input node probabilities.
+    Use node descriptions and dependencies to infer probabilities.
+    Return a JSON object mapping each hidden node to P(Node=1) (float, 0.0 to 1.0).
     Example: {"HiddenNode1": 0.7, "HiddenNode2": 0.4}
     Output ONLY the JSON object.
     """
@@ -290,22 +284,23 @@ def call_openai_for_probabilities(input_states: Dict[str, float], graph: GraphSt
     Network Structure:
     {structure_description}
 
-    Estimate P(Node=1) for hidden nodes ({', '.join(target_nodes)}) based on the inputs and network structure.
+    Estimate P(Node=1) for hidden nodes ({', '.join(target_nodes)}).
     """
 
     logger.debug("Sending probability prompt to OpenAI...")
     try:
-        response = openai.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": system_message},
-                {"role": "user", "content": user_message}
-            ],
-            response_format={"type": "json_object"},
-            max_tokens=1000,
-            temperature=0.1,
-            n=1
-        )
+        async with aiohttp.ClientSession(timeout=ClientTimeout(total=5)) as session:
+            response = await openai.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": system_message},
+                    {"role": "user", "content": user_message}
+                ],
+                response_format={"type": "json_object"},
+                max_tokens=500,
+                temperature=0.1,
+                n=1
+            )
         llm_output_raw = response.choices[0].message.content.strip()
         logger.info(f"OpenAI Probability Output: {llm_output_raw}")
         estimated_probs = json.loads(llm_output_raw)
@@ -322,94 +317,72 @@ def call_openai_for_probabilities(input_states: Dict[str, float], graph: GraphSt
         raise HTTPException(status_code=500, detail=f"LLM JSON parse error: {e}")
     except openai.APIError as e:
         logger.error(f"OpenAI API Error: {e}")
-        raise HTTPException(status_code=502, detail=f"OpenAI API Error: {e.body}")
+        raise HTTPException(status_code=502, detail=f"OpenAI API Error: {str(e)}")
     except openai.AuthenticationError as e:
         logger.error(f"OpenAI Auth Error: {e}")
-        raise HTTPException(status_code=401, detail=f"OpenAI Auth Failed: {e.body}")
+        raise HTTPException(status_code=401, detail=f"OpenAI Auth Failed: {str(e)}")
     except openai.RateLimitError as e:
         logger.error(f"OpenAI Rate Limit: {e}")
-        raise HTTPException(status_code=429, detail=f"OpenAI Rate Limit: {e.body}")
+        raise HTTPException(status_code=429, detail=f"OpenAI Rate Limit: {str(e)}")
     except Exception as e:
-        logger.error(f"Error in OpenAI call: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"OpenAI request failed: {e}")
+        logger.error(f"Error in OpenAI probability call: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"OpenAI request failed: {str(e)}")
 
-def call_openai_for_reasoning(input_states: Dict[str, float], graph: GraphStructure, estimated_probabilities: Dict[str, float]) -> str:
+async def call_openai_for_reasoning(input_states: Dict[str, float], graph: GraphStructure, estimated_probabilities: Dict[str, float]) -> str:
     if not openai_api_key:
         return "Reasoning disabled: OpenAI API key not configured."
     openai.api_key = openai_api_key
 
-    node_parents, node_descriptions, _, all_nodes, target_nodes, input_nodes = get_dynamic_node_info(graph)
+    node_parents, node_descriptions, _, _, target_nodes, _ = get_dynamic_node_info(graph)
 
     input_desc_list = []
     for node, value in input_states.items():
-        if node in input_nodes:
-            state_desc = "High" if value >= 0.66 else ("Medium" if value >= 0.33 else "Low")
-            input_desc_list.append(f"- {node} ({node_descriptions.get(node, node)}): {state_desc} (P(1)={value:.2f})")
+        state_desc = "High" if value >= 0.66 else ("Medium" if value >= 0.33 else "Low")
+        input_desc_list.append(f"- {node} ({node_descriptions.get(node, node)}): {state_desc} (P(1)={value:.2f})")
     input_context = "\n".join(input_desc_list)
 
-    node_info = []
-    for node_id in node_descriptions:
-        parents = node_parents.get(node_id, [])
-        node_type = "input" if node_id in input_nodes else "hidden"
-        parent_desc = ", ".join([f"{p} ({node_descriptions.get(p, p)})" for p in parents]) if parents else "none"
-        node_info.append(f"- {node_id} ({node_descriptions[node_id]}): {node_type} node, influenced by {parent_desc}")
-    structure_description = f"""
-    Network Structure:
-    { '\n'.join(node_info) }
-    """
-
     probs_text = "\n".join([f"- {node} ({node_descriptions.get(node, node)}): P(1)={prob:.3f}" for node, prob in estimated_probabilities.items()])
-    all_probs = {**input_states, **estimated_probabilities}
-    all_probs_text = "\n".join([f"- {node} ({node_descriptions.get(node, node)}): P(1)={all_probs.get(node, 'N/A'):.3f}" for node in all_nodes])
 
     system_message = """
-    You are an expert analyst explaining a Bayesian Network simulation for cognitive processes.
-    Given the input probabilities, network structure (nodes, descriptions, dependencies), and estimated probabilities for hidden nodes,
-    provide a concise explanation for why each hidden node received its estimated P(Node=1).
-    Focus on how the input values and parent nodes' semantic meanings influenced each hidden node's probability.
-    Structure the explanation as a list, one item per hidden node, with clear reasoning.
+    You are an expert analyst explaining a Bayesian Network simulation.
+    Given input probabilities, hidden node probabilities, and dependencies, explain why each hidden node received its P(Node=1).
+    Focus on parent nodes' influence. Use a concise list format.
     Example:
-    - Node IS1 (Confidence): Estimated P(1)=0.7 due to high Motivation (A5) and moderate Task Understanding (IS3).
-    Keep it concise and avoid repeating the structure unnecessarily.
+    - Node IS1 (Confidence): P(1)=0.7 due to high Motivation and moderate Task Understanding.
     """
     user_message = f"""
     Inputs (P=1):
     {input_context}
 
-    Network Structure:
-    {structure_description}
-
-    Estimated Probabilities for Hidden Nodes:
+    Estimated Probabilities:
     {probs_text}
 
-    All Probabilities:
-    {all_probs_text}
-
-    Explain why each hidden node ({', '.join(target_nodes)}) received its estimated probability, considering the inputs and dependencies.
+    Explain why each hidden node ({', '.join(target_nodes)}) received its probability.
     """
 
     logger.debug("Sending reasoning prompt to OpenAI...")
     try:
-        response = openai.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": system_message},
-                {"role": "user", "content": user_message}
-            ],
-            max_tokens=500,
-            temperature=0.3,
-            n=1
-        )
+        async with aiohttp.ClientSession(timeout=ClientTimeout(total=5)) as session:
+            response = await openai.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": system_message},
+                    {"role": "user", "content": user_message}
+                ],
+                max_tokens=300,
+                temperature=0.3,
+                n=1
+            )
         reasoning_text = response.choices[0].message.content.strip()
         logger.info(f"OpenAI Reasoning Output received.")
         return reasoning_text
     except Exception as e:
         logger.error(f"Error in reasoning call: {e}", exc_info=True)
-        return f"Could not generate reasoning: {e}"
+        return f"Could not generate reasoning: {str(e)}"
 
 # API Endpoints
 @app.get("/api/ping")
-def ping():
+async def ping():
     redis_status = "disabled"
     if redis_client:
         try:
@@ -431,7 +404,7 @@ async def vercel_blob_test():
             body=test_content,
             options={'access': 'public', 'add_random_suffix': False, 'content_type': 'text/csv', 'token': vercel_blob_token}
         )
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(timeout=ClientTimeout(total=5)) as session:
             async with session.get(put_result['url']) as response:
                 if response.status != 200:
                     raise Exception(f"Failed to fetch blob: HTTP {response.status}")
@@ -440,7 +413,7 @@ async def vercel_blob_test():
         return {"status": "success", "content": content.decode('utf-8')}
     except Exception as e:
         logger.error(f"Vercel Blob test failed: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Vercel Blob test failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Vercel Blob test failed: {str(e)}")
 
 @app.get("/api/configs/default", response_model=Dict[str, Any])
 async def get_default_configuration():
@@ -477,7 +450,7 @@ async def save_configuration(payload: SaveConfigPayload):
         return {"message": "Configuration saved", "config_id": config_id, "config_name": payload.config_name}
     except redis.RedisError as e:
         logger.error(f"Error saving to Redis: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to save: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to save: {str(e)}")
 
 @app.get("/api/configs", response_model=List[Dict[str, str]])
 async def list_configurations():
@@ -523,7 +496,7 @@ async def load_configuration(config_id: str):
         raise HTTPException(status_code=500, detail="Config data corrupted.")
     except redis.RedisError as e:
         logger.error(f"Error loading {config_id_with_prefix}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Load failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Load failed: {str(e)}")
 
 @app.delete("/api/configs/{config_id}", status_code=200)
 async def delete_configuration(config_id: str):
@@ -546,7 +519,7 @@ async def delete_configuration(config_id: str):
         return {"message": "Configuration deleted successfully."}
     except redis.RedisError as e:
         logger.error(f"Error deleting {config_id_with_prefix}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to delete: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete: {str(e)}")
 
 @app.post("/api/configs/set_default", status_code=200)
 async def set_default_configuration(config_id: str = Body(...)):
@@ -565,7 +538,7 @@ async def set_default_configuration(config_id: str = Body(...)):
         return {"message": f"Configuration '{config_data['name']}' set as default."}
     except redis.RedisError as e:
         logger.error(f"Error setting default config: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to set default: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to set default: {str(e)}")
 
 @app.post("/api/predict_openai_bn_single_call")
 async def predict_openai_bn_single_call(payload: PredictionPayload):
@@ -575,8 +548,10 @@ async def predict_openai_bn_single_call(payload: PredictionPayload):
         if not is_valid_dag:
             raise HTTPException(status_code=400, detail=f"Invalid graph: Not a DAG. {cycle_info or ''}")
 
-        estimated_target_probs = call_openai_for_probabilities(payload.input_values, payload.graph_structure)
-        reasoning_text = call_openai_for_reasoning(payload.input_values, payload.graph_structure, estimated_target_probs)
+        logger.info("Calling OpenAI for probabilities...")
+        estimated_target_probs = await call_openai_for_probabilities(payload.input_values, payload.graph_structure)
+        logger.info("Calling OpenAI for reasoning...")
+        reasoning_text = await call_openai_for_reasoning(payload.input_values, payload.graph_structure, estimated_target_probs)
         all_current_probabilities = {**payload.input_values, **estimated_target_probs}
         _, node_descriptions, _, all_nodes, _, _ = get_dynamic_node_info(payload.graph_structure)
         final_result_probs = {}
@@ -614,18 +589,20 @@ async def predict_openai_bn_single_call(payload: PredictionPayload):
             probabilities=log_probs
         )
         try:
+            logger.info("Attempting to log prediction to blob...")
             await log_data_to_blob(log_entry)
             logger.info("Prediction logged successfully.")
         except Exception as e:
-            logger.error(f"Failed to log prediction: {e}", exc_info=True)
+            logger.warning(f"Failed to log prediction: {e}. Continuing without logging.")
 
         logger.info("Prediction completed successfully.")
         return response_payload
     except HTTPException as e:
+        logger.error(f"HTTPException in prediction: {e.detail}", exc_info=True)
         raise e
     except Exception as e:
-        logger.error(f"Prediction error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Internal server error: {e}")
+        logger.error(f"Unexpected error in prediction: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 async def log_data_to_blob(log_entry: LogPayload):
     if not vercel_blob_token:
@@ -667,7 +644,7 @@ async def log_data_to_blob(log_entry: LogPayload):
                     logger.warning(f"No URL returned for {log_filename}. Treating as new file.")
                     needs_headers = True
                 else:
-                    async with aiohttp.ClientSession() as session:
+                    async with aiohttp.ClientSession(timeout=ClientTimeout(total=3)) as session:
                         async with session.get(blob_url) as response:
                             if response.status != 200:
                                 logger.warning(f"Failed to fetch {log_filename}: HTTP {response.status}")
@@ -702,7 +679,6 @@ async def log_data_to_blob(log_entry: LogPayload):
         logger.error(f"Failed to log to {log_filename}: {e}", exc_info=True)
         raise e
 
-@app.get("/api/download_log/{config_id}")
 async def download_log_file(config_id: str):
     if not vercel_blob_token:
         raise HTTPException(status_code=500, detail="BLOB_READ_WRITE_TOKEN not configured")
@@ -718,7 +694,7 @@ async def download_log_file(config_id: str):
         blob_url = put_result.get('url')
         if not blob_url:
             raise HTTPException(status_code=404, detail=f"No URL found for log file {log_filename}")
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(timeout=ClientTimeout(total=3)) as session:
             async with session.get(blob_url) as response:
                 if response.status != 200:
                     raise HTTPException(status_code=404, detail=f"Failed to fetch log file: HTTP {response.status}")
@@ -735,7 +711,7 @@ async def download_log_file(config_id: str):
         raise HTTPException(status_code=404, detail=f"Log file not found for config ID {config_id}")
 
 @app.get("/")
-def root():
+async def root():
     logger.info("Entered / route.")
     return {"message": "BN API is running."}
 
