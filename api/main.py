@@ -18,7 +18,7 @@ try:
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import StreamingResponse
     from pydantic import BaseModel, Field, validator
-    import openai
+    from openai import AsyncOpenAI
     from dotenv import load_dotenv
     import redis
     from redis.connection import ConnectionPool
@@ -51,6 +51,13 @@ openai_api_key = os.getenv("OPENAI_API_KEY")
 redis_url = os.getenv("KV_URL") or os.getenv("REDIS_URL")
 vercel_blob_token = os.getenv("BLOB_READ_WRITE_TOKEN")
 
+# Initialize async OpenAI client
+openai_client = None
+if openai_api_key:
+    openai_client = AsyncOpenAI(api_key=openai_api_key)
+else:
+    logger.warning("OPENAI_API_KEY environment variable not found. Prediction endpoints will fail.")
+
 # Redis Connection with Connection Pool
 redis_client = None
 redis_pool = None
@@ -80,8 +87,6 @@ def reconnect_redis():
             redis_client = None
             redis_pool = None
 
-if not openai_api_key:
-    logger.warning("OPENAI_API_KEY environment variable not found. Prediction endpoints will fail.")
 if not vercel_blob_token:
     logger.warning("BLOB_READ_WRITE_TOKEN environment variable not found. Blob storage will fail.")
 if not redis_url:
@@ -241,9 +246,8 @@ def get_dynamic_node_info(graph: GraphStructure):
     return node_parents, node_descriptions, node_types, all_nodes, target_nodes, input_nodes
 
 async def call_openai_for_probabilities(input_states: Dict[str, float], graph: GraphStructure) -> Dict[str, float]:
-    if not openai_api_key:
+    if not openai_client:
         raise HTTPException(status_code=500, detail="OpenAI API key not configured")
-    openai.api_key = openai_api_key
 
     node_parents, node_descriptions, _, _, target_nodes, input_nodes = get_dynamic_node_info(graph)
 
@@ -289,18 +293,17 @@ async def call_openai_for_probabilities(input_states: Dict[str, float], graph: G
 
     logger.debug("Sending probability prompt to OpenAI...")
     try:
-        async with aiohttp.ClientSession(timeout=ClientTimeout(total=5)) as session:
-            response = await openai.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {"role": "system", "content": system_message},
-                    {"role": "user", "content": user_message}
-                ],
-                response_format={"type": "json_object"},
-                max_tokens=500,
-                temperature=0.1,
-                n=1
-            )
+        response = await openai_client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": system_message},
+                {"role": "user", "content": user_message}
+            ],
+            response_format={"type": "json_object"},
+            max_tokens=500,
+            temperature=0.1,
+            n=1
+        )
         llm_output_raw = response.choices[0].message.content.strip()
         logger.info(f"OpenAI Probability Output: {llm_output_raw}")
         estimated_probs = json.loads(llm_output_raw)
@@ -314,24 +317,14 @@ async def call_openai_for_probabilities(input_states: Dict[str, float], graph: G
         return validated_probs
     except json.JSONDecodeError as e:
         logger.error(f"Failed to parse LLM JSON: {e}")
-        raise HTTPException(status_code=500, detail=f"LLM JSON parse error: {e}")
-    except openai.APIError as e:
-        logger.error(f"OpenAI API Error: {e}")
-        raise HTTPException(status_code=502, detail=f"OpenAI API Error: {str(e)}")
-    except openai.AuthenticationError as e:
-        logger.error(f"OpenAI Auth Error: {e}")
-        raise HTTPException(status_code=401, detail=f"OpenAI Auth Failed: {str(e)}")
-    except openai.RateLimitError as e:
-        logger.error(f"OpenAI Rate Limit: {e}")
-        raise HTTPException(status_code=429, detail=f"OpenAI Rate Limit: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"LLM JSON parse error: {str(e)}")
     except Exception as e:
         logger.error(f"Error in OpenAI probability call: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"OpenAI request failed: {str(e)}")
 
 async def call_openai_for_reasoning(input_states: Dict[str, float], graph: GraphStructure, estimated_probabilities: Dict[str, float]) -> str:
-    if not openai_api_key:
+    if not openai_client:
         return "Reasoning disabled: OpenAI API key not configured."
-    openai.api_key = openai_api_key
 
     node_parents, node_descriptions, _, _, target_nodes, _ = get_dynamic_node_info(graph)
 
@@ -362,17 +355,16 @@ async def call_openai_for_reasoning(input_states: Dict[str, float], graph: Graph
 
     logger.debug("Sending reasoning prompt to OpenAI...")
     try:
-        async with aiohttp.ClientSession(timeout=ClientTimeout(total=5)) as session:
-            response = await openai.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {"role": "system", "content": system_message},
-                    {"role": "user", "content": user_message}
-                ],
-                max_tokens=300,
-                temperature=0.3,
-                n=1
-            )
+        response = await openai_client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": system_message},
+                {"role": "user", "content": user_message}
+            ],
+            max_tokens=300,
+            temperature=0.3,
+            n=1
+        )
         reasoning_text = response.choices[0].message.content.strip()
         logger.info(f"OpenAI Reasoning Output received.")
         return reasoning_text
@@ -679,6 +671,7 @@ async def log_data_to_blob(log_entry: LogPayload):
         logger.error(f"Failed to log to {log_filename}: {e}", exc_info=True)
         raise e
 
+@app.get("/api/download_log/{config_id}")
 async def download_log_file(config_id: str):
     if not vercel_blob_token:
         raise HTTPException(status_code=500, detail="BLOB_READ_WRITE_TOKEN not configured")
