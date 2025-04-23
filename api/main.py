@@ -361,7 +361,7 @@ async def call_openai_for_reasoning(input_states: Dict[str, float], graph: Graph
                 {"role": "system", "content": system_message},
                 {"role": "user", "content": user_message}
             ],
-            max_tokens=300,
+            max_tokens=600,
             temperature=0.3,
             n=1
         )
