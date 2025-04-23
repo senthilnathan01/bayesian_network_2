@@ -20,7 +20,7 @@ try:
     from dotenv import load_dotenv
     import redis
     from redis.connection import ConnectionPool
-    from vercel_blob import put as blob_put, head as blob_head, read as blob_read, delete as blob_delete
+    from vercel_blob import put as blob_put, head as blob_head, download as blob_download, delete as blob_delete
     print("--- DEBUG: Imported FastAPI, CORS, Pydantic, OpenAI, Redis, Vercel Blob ---", flush=True)
 
     app = FastAPI(title="Dynamic Bayesian Network API")
@@ -46,8 +46,8 @@ logger = logging.getLogger(__name__)
 # Load environment variables
 load_dotenv()
 openai_api_key = os.getenv("OPENAI_API_KEY")
-redis_url = os.getenv("UPSTASH_REDIS_URL") or os.getenv("REDIS_URL")
-vercel_blob_token = os.getenv("VERCEL_BLOB_TOKEN")
+redis_url = os.getenv("KV_URL") or os.getenv("REDIS_URL")
+vercel_blob_token = os.getenv("BLOB_READ_WRITE_TOKEN")
 
 # Redis Connection with Connection Pool
 redis_client = None
@@ -63,7 +63,7 @@ if redis_url:
         redis_client = None
         redis_pool = None
 else:
-    logger.warning("--- Redis URL not found. Config storage disabled. ---")
+    logger.warning("--- Redis URL (KV_URL or REDIS_URL) not found. Config storage disabled. ---")
 
 def reconnect_redis():
     global redis_client, redis_pool
@@ -79,9 +79,11 @@ def reconnect_redis():
             redis_pool = None
 
 if not openai_api_key:
-    logger.warning("OPENAI_API_KEY environment variable not found.")
+    logger.warning("OPENAI_API_KEY environment variable not found. Prediction endpoints will fail.")
 if not vercel_blob_token:
-    logger.warning("VERCEL_BLOB_TOKEN environment variable not found. Blob storage may fail.")
+    logger.warning("BLOB_READ_WRITE_TOKEN environment variable not found. Blob storage will fail.")
+if not redis_url:
+    logger.warning("No Redis URL provided. Configuration storage will use hardcoded defaults.")
 
 # Constants
 CONFIG_KEY_PREFIX = "bn_config:"
@@ -360,7 +362,7 @@ def call_openai_for_reasoning(input_states: Dict[str, float], graph: GraphStruct
     all_probs_text = "\n".join([f"- {node} ({node_descriptions.get(node, node)}): P(1)={all_probs.get(node, 'N/A'):.3f}" for node in all_nodes])
 
     system_message = """
-    You are an expert analyst explaining a Bayesian Network simulation for cognitive processes.
+    You are an expert analyst Explaining a Bayesian Network simulation for cognitive processes.
     Given the input probabilities, network structure (nodes, descriptions, dependencies), and estimated probabilities for hidden nodes,
     provide a concise explanation for why each hidden node received its estimated P(Node=1).
     Focus on how the input values and parent nodes' semantic meanings influenced each hidden node's probability.
@@ -418,21 +420,23 @@ def ping():
 
 @app.get("/api/vercel_blob_test")
 async def vercel_blob_test():
+    if not vercel_blob_token:
+        raise HTTPException(status_code=500, detail="BLOB_READ_WRITE_TOKEN not configured")
     try:
         test_filename = "test_blob.csv"
         test_content = "Test,Timestamp,Data\n1,2023-10-01T00:00:00Z,TestData".encode('utf-8')
         await blob_put(
             pathname=test_filename,
             body=test_content,
-            options={'add_random_suffix': False, 'content_type': 'text/csv'}
+            options={'access': 'public', 'add_random_suffix': False, 'content_type': 'text/csv', 'token': vercel_blob_token}
         )
-        blob_response = await blob_read(pathname=test_filename)
+        blob_response = await blob_download(pathname=test_filename, options={'token': vercel_blob_token})
         content = await blob_response.read()
-        await blob_delete(test_filename)
+        await blob_delete(pathname=test_filename, options={'token': vercel_blob_token})
         return {"status": "success", "content": content.decode('utf-8')}
     except Exception as e:
         logger.error(f"Vercel Blob test failed: {e}", exc_info=True)
-        return {"status": "error", "message": str(e)}
+        raise HTTPException(status_code=500, detail=f"Vercel Blob test failed: {e}")
 
 @app.get("/api/configs/default", response_model=Dict[str, Any])
 async def get_default_configuration():
@@ -530,10 +534,11 @@ async def delete_configuration(config_id: str):
             raise HTTPException(status_code=404, detail="Configuration not found.")
         log_filename = f"{LOG_FILENAME_PREFIX}{config_id_with_prefix}{LOG_FILENAME_SUFFIX}"
         try:
-            await blob_delete(log_filename)
+            await blob_delete(pathname=log_filename, options={'token': vercel_blob_token})
             logger.info(f"Deleted log file '{log_filename}'.")
         except Exception as e:
             logger.warning(f"Failed to delete log file '{log_filename}': {e}")
+        logger.info(f"Deleted config '{config_id_with_prefix}'.")
         return {"message": "Configuration deleted successfully."}
     except redis.RedisError as e:
         logger.error(f"Error deleting {config_id_with_prefix}: {e}", exc_info=True)
@@ -606,6 +611,7 @@ async def predict_openai_bn_single_call(payload: PredictionPayload):
         )
         try:
             await log_data_to_blob(log_entry)
+            logger.info("Prediction logged successfully.")
         except Exception as e:
             logger.error(f"Failed to log prediction: {e}", exc_info=True)
 
@@ -618,6 +624,9 @@ async def predict_openai_bn_single_call(payload: PredictionPayload):
         raise HTTPException(status_code=500, detail=f"Internal server error: {e}")
 
 async def log_data_to_blob(log_entry: LogPayload):
+    if not vercel_blob_token:
+        logger.warning("BLOB_READ_WRITE_TOKEN not configured. Skipping log.")
+        return
     if not log_entry.configId or log_entry.configId == "unknown" or log_entry.configId == "default-config-001":
         logger.warning(f"Skipping log for unsaved/default config: {log_entry.configId}")
         return
@@ -637,9 +646,10 @@ async def log_data_to_blob(log_entry: LogPayload):
     try:
         needs_headers = False
         try:
-            await blob_head(pathname=log_filename)
+            await blob_head(pathname=log_filename, options={'token': vercel_blob_token})
         except Exception:
             needs_headers = True
+            logger.info(f"Log file {log_filename} does not exist. Will create with headers.")
 
         output = io.StringIO()
         writer = csv.writer(output)
@@ -647,7 +657,7 @@ async def log_data_to_blob(log_entry: LogPayload):
         existing_content = b""
         if not needs_headers:
             try:
-                blob_response = await blob_read(pathname=log_filename)
+                blob_response = await blob_download(pathname=log_filename, options={'token': vercel_blob_token})
                 existing_content = await blob_response.read()
                 if existing_content.endswith(b'\n'):
                     existing_content = existing_content[:-1]
@@ -670,7 +680,7 @@ async def log_data_to_blob(log_entry: LogPayload):
         await blob_put(
             pathname=log_filename,
             body=final_csv_content,
-            options={'add_random_suffix': False, 'content_type': 'text/csv'}
+            options={'access': 'public', 'add_random_suffix': False, 'content_type': 'text/csv', 'token': vercel_blob_token}
         )
         logger.info(f"Appended {len(new_rows)} entries to {log_filename}")
     except Exception as e:
@@ -679,6 +689,8 @@ async def log_data_to_blob(log_entry: LogPayload):
 
 @app.get("/api/download_log/{config_id}")
 async def download_log_file(config_id: str):
+    if not vercel_blob_token:
+        raise HTTPException(status_code=500, detail="BLOB_READ_WRITE_TOKEN not configured")
     if not config_id or config_id == "unknown" or config_id == "default-config-001":
         raise HTTPException(status_code=400, detail="Cannot download logs for unsaved/default configs.")
 
@@ -687,7 +699,7 @@ async def download_log_file(config_id: str):
     logger.info(f"Downloading log: {log_filename}")
 
     try:
-        blob_response = await blob_read(pathname=log_filename)
+        blob_response = await blob_download(pathname=log_filename, options={'token': vercel_blob_token})
         safe_filename_part = config_id_with_prefix.replace(CONFIG_KEY_PREFIX, "")
         download_filename = f"log_{safe_filename_part}.csv"
         return StreamingResponse(
