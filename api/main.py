@@ -20,7 +20,7 @@ try:
     from dotenv import load_dotenv
     import redis
     from redis.connection import ConnectionPool
-    from vercel_blob import put as blob_put, head as blob_head, get as blob_get, delete as blob_delete
+    from vercel_blob import put as blob_put, head as blob_head, read as blob_read, delete as blob_delete
     print("--- DEBUG: Imported FastAPI, CORS, Pydantic, OpenAI, Redis, Vercel Blob ---", flush=True)
 
     app = FastAPI(title="Dynamic Bayesian Network API")
@@ -416,6 +416,24 @@ def ping():
             redis_status = "disconnected"
     return {"message": "pong", "redis_status": redis_status}
 
+@app.get("/api/vercel_blob_test")
+async def vercel_blob_test():
+    try:
+        test_filename = "test_blob.csv"
+        test_content = "Test,Timestamp,Data\n1,2023-10-01T00:00:00Z,TestData".encode('utf-8')
+        await blob_put(
+            pathname=test_filename,
+            body=test_content,
+            options={'add_random_suffix': False, 'content_type': 'text/csv'}
+        )
+        blob_response = await blob_read(pathname=test_filename)
+        content = await blob_response.read()
+        await blob_delete(test_filename)
+        return {"status": "success", "content": content.decode('utf-8')}
+    except Exception as e:
+        logger.error(f"Vercel Blob test failed: {e}", exc_info=True)
+        return {"status": "error", "message": str(e)}
+
 @app.get("/api/configs/default", response_model=Dict[str, Any])
 async def get_default_configuration():
     logger.info("Serving default configuration.")
@@ -629,7 +647,7 @@ async def log_data_to_blob(log_entry: LogPayload):
         existing_content = b""
         if not needs_headers:
             try:
-                blob_response = await blob_get(pathname=log_filename)
+                blob_response = await blob_read(pathname=log_filename)
                 existing_content = await blob_response.read()
                 if existing_content.endswith(b'\n'):
                     existing_content = existing_content[:-1]
@@ -669,7 +687,7 @@ async def download_log_file(config_id: str):
     logger.info(f"Downloading log: {log_filename}")
 
     try:
-        blob_response = await blob_get(pathname=log_filename)
+        blob_response = await blob_read(pathname=log_filename)
         safe_filename_part = config_id_with_prefix.replace(CONFIG_KEY_PREFIX, "")
         download_filename = f"log_{safe_filename_part}.csv"
         return StreamingResponse(
