@@ -89,7 +89,7 @@ button:disabled { background-color: #cccccc; cursor: not-allowed; }
 /* ============================================ */
 /* --- RESPONSIVE GRID LAYOUT - FINAL ATTEMPT --- */
 /* ============================================ */
-@media (min-width: 1000px) {
+@media (min-width: 150px) {
     main {
         display: grid;
         grid-template-columns: 2fr 1fr; /* Graph takes 2/3 width */
