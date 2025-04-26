@@ -54,13 +54,11 @@ button:disabled { background-color: #cccccc; cursor: not-allowed; }
 
 /* --- Graph Editor Section --- */
 .graph-editor {
-    display: flex; /* Use flexbox */
     flex-direction: column; /* Stack title, p, and graph vertically */
     overflow: hidden; /* Crucial: Prevent children from expanding this container */
     max-width: 150 px;
 }
-.graph-editor h2 { flex-shrink: 0; } /* Prevent header shrinking */
-.graph-editor p { flex-shrink: 0; color: #555; font-size: 0.9em; text-align: center; margin-bottom: 10px;}
+.graph-editor p { color: #555; font-size: 0.9em; text-align: center; margin-bottom: 10px;}
 /* Let #cy grow to fill the remaining space in the flex container */
 #cy-container { /* Optional: Add a wrapper if needed */
     flex-grow: 0; /* Allow this div to take up remaining vertical space */
@@ -106,10 +104,9 @@ button:disabled { background-color: #cccccc; cursor: not-allowed; }
         grid-column: 1 / 2;
         grid-row: 1 / 5; /* Let graph editor span ALL defined rows */
         /* Use flexbox to manage internal heights */
-        display: flex;
         flex-direction: column;
         overflow: hidden; /* MUST prevent content overflow */
-        min-height: 0; /* Allow flex item to shrink if needed */
+        min-height: 0;
     }
     #cy {
         flex-grow: 0; /* Allow canvas to take up all available vertical space in parent */
