@@ -34,7 +34,7 @@ function simulateIsDag(graph) {
 function simulateIsDag(graph) {
     if (!graph || !graph.nodes || !graph.edges) { console.warn("simulateIsDag: Invalid graph structure."); return false; }
     const adj = {}; const nodesSet = new Set();
-    graph.nodes.forEach(n => { if (n && n.id) { adj[.nodes.forEach(n => { if (n && n.id) { adj[n.id] = []; nodesSet.add(n.id); } else { console.warn("simulateIsDag: Invalid node object:", nn.id] = []; nodesSet.add(n.id); } else { console.warn("simulateIsDag: Invalid node object:", n); } });
+    graph.nodes.forEach(n => { if (n && n.id) { adj[n.id] = []; nodesSet.add(n.id); } else { console.warn("simulateIsDag: Skipping invalid node object during init:", n); } });
     graph.edges.forEach(e => { if (e && e.); } });
     graph.edges.forEach(e => { if (e && e.source && e.source && e.target && nodesSet.has(e.source) && nodesSet.has(e.targettarget && nodesSet.has(e.source) && nodesSet.has(e.target)) { if ()) { if (e.source in adj) { adj[e.source].push(e.target); }e.source in adj) { adj[e.source].push(e.target); } else { adj[ else { adj[e.source] = [e.target]; console.warn(`simulateIsDag: Source ${e.source] = [e.target]; console.warn(`simulateIsDag: Source ${e.source}e.source} init`); } } else { console.warn(`simulateIsDag: Invalid edge:`, e); } init`); } } else { console.warn(`simulateIsDag: Invalid edge:`, e); } });
     const });
