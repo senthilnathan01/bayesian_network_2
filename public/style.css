@@ -1,207 +1,112 @@
-/* public/style.css */
+/* public/style.css - Reverted to simpler single-column layout */
+
 body {
     font-family: sans-serif;
-    display: flex;
+    display: flex; /* Use flex for centering items */
     flex-direction: column;
-    align-items: center;
+    align-items: center; /* Center sections horizontally */
     margin: 0;
     padding: 20px;
     background-color: #f4f4f4;
 }
+
 h1, h2, h3 {
     color: #333;
     text-align: center;
+    margin-bottom: 0.5em;
+    margin-top: 0.8em;
+}
+h1 { margin-bottom: 1em; }
+
+/* --- Layout Container --- */
+.container {
+    width: 100%; /* Take full width allowed by body padding */
+    max-width: 1000px; /* Limit overall content width */
+    display: flex;
+    flex-direction: column;
+    align-items: center;
 }
 
-/* Section Styling */
-.config-manager, .controls, .logging-controls, .llm-context, .graph-editor {
-    margin-bottom: 20px;
-    padding: 20px;
+/* --- Section Styling (Single Column) --- */
+/* Apply consistent width and margin to all sections */
+.graph-editor, .config-section, .input-section, .output-section, .log-section {
+    padding: 15px;
     border: 1px solid #ccc;
     border-radius: 8px;
     background-color: #fff;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-    width: 90%;
-    max-width: 800px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    /* Use width relative to container, and max-width */
+    width: 95%;
+    max-width: 900px; /* Adjust max-width for sections if needed */
+    margin-bottom: 20px; /* Space between sections */
+    box-sizing: border-box; /* Include padding/border in width */
 }
 
-/* Form Element Styling */
-label {
-    display: inline-block;
-    margin-bottom: 8px;
-    font-weight: bold;
-    color: #555;
-    min-width: 150px;
-    vertical-align: middle;
-}
-input[type=text], input[type=number], select {
-    padding: 8px;
-    border: 1px solid #ccc;
-    border-radius: 4px;
-    margin-right: 10px;
-    margin-bottom: 10px;
-    vertical-align: middle;
-}
-input[type=number] {
-    width: 80px;
-}
-button {
-    padding: 10px 15px;
-    background-color: #007bff;
-    color: white;
-    border: none;
-    border-radius: 5px;
-    cursor: pointer;
-    font-size: 14px;
-    transition: background-color 0.3s ease;
-    margin-right: 10px;
-    margin-top: 5px;
-    vertical-align: middle;
-}
-button:hover {
-    background-color: #0056b3;
-}
-button:disabled {
-    background-color: #cccccc;
-    cursor: not-allowed;
-}
+/* --- Form Element Styling --- */
+label { display: inline-block; margin-bottom: 5px; font-weight: bold; color: #555; min-width: 100px; vertical-align: middle; font-size: 0.9em;}
+input[type=text], input[type=number], select { padding: 8px; border: 1px solid #ccc; border-radius: 4px; margin-right: 5px; margin-bottom: 8px; vertical-align: middle; font-size: 14px; }
+input[type=number] { width: 70px; }
+button { padding: 8px 12px; background-color: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 14px; transition: background-color 0.2s ease; margin-right: 5px; margin-top: 5px; vertical-align: middle; }
+button:hover { background-color: #0056b3; }
+button:disabled { background-color: #cccccc; cursor: not-allowed; }
+.config-controls > div, .input-section > div { margin-bottom: 10px; }
+#input-controls-container { margin-bottom: 10px; max-height: 180px; overflow-y: auto; border: 1px solid #eee; padding: 10px; }
+.input-section label { width: auto; min-width: 180px; }
+#set-default-button { background-color: #28a745; } #set-default-button:hover { background-color: #218838; }
+#delete-config-button { background-color: #dc3545; } #delete-config-button:hover { background-color: #c82333; }
+.invalid-input input { border: 2px solid red !important; }
 
-/* Specific Controls & Buttons */
-.config-manager div {
-    margin-bottom: 10px;
-}
-.controls #input-controls-container {
-    margin-bottom: 15px;
-    max-height: 150px;
-    overflow-y: auto;
-    border: 1px solid #eee;
-    padding: 10px;
-}
-.controls label {
-    width: 180px;
-}
-#set-default-button {
-    background-color: #28a745;
-}
-#set-default-button:hover {
-    background-color: #218838;
-}
-#delete-config-button {
-    background-color: #dc3545;
-}
-#delete-config-button:hover {
-    background-color: #c82333;
-}
+/* --- Status Messages --- */
+.status-message { margin-top: 5px; font-style: italic; min-height: 1.2em; font-size: 0.9em; }
+.status-message.success { color: green; } .status-message.error { color: red; } .status-message.loading { color: #666; }
 
-/* Status Messages */
-.status-message {
-    margin-top: 10px;
-    font-style: italic;
-    min-height: 1.2em;
-}
-#config-status.success, #predict-status.success {
-    color: green;
-}
-#config-status.error, #predict-status.error {
-    color: red;
-}
-#config-status.loading, #predict-status.loading {
-    color: #666;
-}
+/* --- Loading Spinner --- */
+.spinner { border: 4px solid #f3f3f3; border-top: 4px solid #007bff; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; position: fixed; top: 20px; right: 20px; z-index: 1001;}
+@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+.hidden { display: none; }
 
-/* Loading Spinner */
-.spinner {
-    border: 4px solid #f3f3f3;
-    border-top: 4px solid #007bff;
-    border-radius: 50%;
-    width: 40px;
-    height: 40px;
-    animation: spin 1s linear infinite;
-    position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-}
-@keyframes spin {
-    0% { transform: translate(-50%, -50%) rotate(0deg); }
-    100% { transform: translate(-50%, -50%) rotate(360deg); }
-}
-.hidden {
-    display: none;
-}
-
-/* Cytoscape Container */
+/* --- Cytoscape Container --- */
 #cy {
-    width: 90%;
-    max-width: 800px;
-    height: 550px;
+    width: 100%; /* Fill the width of its container (.graph-editor) */
+    height: 550px; /* CRUCIAL: Fixed height like the old working version */
     border: 1px solid #ccc;
     background-color: #fff;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-    display: block;
-    margin: 20px auto;
+    display: block; /* Ensure it takes block layout space */
+    box-sizing: border-box; /* Include border in size */
 }
 
-/* LLM Context & Reasonings */
-.llm-context {
-    word-wrap: break-word;
-}
-.llm-context h2 {
-    margin-bottom: 15px;
-}
-#llm-reasoning-content {
-    background-color: #f8f9fa;
-    border: 1px solid #eee;
-    padding: 15px;
-    border-radius: 5px;
-    margin-bottom: 15px;
-    min-height: 50px;
-    white-space: pre-wrap;
-}
-.llm-context details {
-    border: 1px solid #eee;
-    padding: 10px;
-    border-radius: 4px;
-}
-.llm-context summary {
-    cursor: pointer;
-    font-weight: bold;
-    color: #0056b3;
-}
-.llm-context h3 {
-    margin-top: 15px;
-    margin-bottom: 10px;
-    color: #0056b3;
-    font-size: 1.1em;
-}
-.llm-context h3:first-child {
-    margin-top: 0;
-}
-.llm-context p, .llm-context ul, .llm-context pre {
-    margin-bottom: 10px;
-    color: #333;
-    white-space: pre-wrap;
-    font-size: 0.95em;
-}
-.llm-context pre {
-    background-color: #f0f0f0;
-    padding: 10px;
-    border-radius: 4px;
-    overflow-x: auto;
-}
+/* --- LLM Context & Reasonings --- */
+.output-section { word-wrap: break-word; }
+.output-section h2 { margin-bottom: 10px;}
+#llm-reasoning-content { background-color: #f8f9fa; border: 1px solid #eee; padding: 15px; border-radius: 5px; margin-bottom: 10px; white-space: pre-wrap; font-size: 0.9em; /* Allow scroll if content exceeds section size */ max-height: 300px; overflow-y: auto; min-height: 80px; }
+.output-section details { border: 1px solid #eee; padding: 10px; border-radius: 4px; margin-top: 10px;}
+.output-section summary { cursor: pointer; font-weight: bold; color: #0056b3; font-size: 0.95em; }
+.output-section h3 { margin-top: 10px; margin-bottom: 5px; color: #0056b3; font-size: 1em; }
+.output-section p, .output-section ul { margin-bottom: 5px; color: #333; white-space: pre-wrap; font-size: 0.9em; }
+.output-section ul { padding-left: 20px; }
 
-/* Graph Editor */
+/* --- Graph Editor Section --- */
 .graph-editor {
-    background-color: #fff;
+    /* No special layout needed, just standard block */
+    /* overflow: hidden; Is okay to keep */
 }
-.graph-editor p {
-    color: #555;
-}
+.graph-editor p { color: #555; font-size: 0.9em; text-align: center; margin-bottom: 10px;}
 
-/* Logging */
-.logging-controls p {
-    color: #555;
-}
-#log-count {
-    font-weight: bold;
-}
+/* --- Logging --- */
+.log-section { margin-top: 0; }
+.log-section p { color: #555; font-size: 0.9em;}
+#log-count { font-weight: bold; }
+
+/* --- Context Menu Styles --- */
+.ctx-menu { display: none; z-index: 1000; background-color: #ffffff; border: 1px solid #b0b0b0; border-radius: 4px; min-width: 160px; box-shadow: 0 3px 6px rgba(0,0,0,0.15); padding: 4px 0; }
+.ctx-menu-item { display: block; padding: 6px 12px; color: #333; cursor: pointer; font-size: 14px; white-space: nowrap; }
+.ctx-menu-item:hover { background-color: #e9e9e9; }
+.ctx-menu-item[hasTrailingDivider="true"] { border-bottom: 1px solid #e0e0e0; margin-bottom: 4px; padding-bottom: 7px; }
+.tippy-box[data-theme~='light'] { background-color: #333; color: white; border-radius: 4px; padding: 5px 10px; font-size: 13px;}
+.tippy-arrow { color: #333; }
+.edge-source-active { border: 3px solid #00dd00 !important; box-shadow: 0 0 8px #00dd00; }
+.eh-grabbed { border: 3px solid #007bff !important; box-shadow: 0 0 8px #007bff; } /* Style for edge handles if re-enabled */
+
+
+/* --- REMOVED @media query for grid layout --- */
+/* The layout will now be single column on all screen sizes */
