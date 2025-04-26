@@ -5,9 +5,10 @@ let cy; // Cytoscape instance
 let currentConfig = null; // Represents the currently loaded/active config object { id, name, graph_structure }
 let defaultGraphStructure = null; // To store the structure fetched from backend
 let sessionLog = []; // Logs for the current browser session
-// let edgeHandlesInstance = null; // REMOVED as it caused issues
+let edgeHandlesInstance = null; // Reference to edge handles extension API (REMOVED - caused issues)
 let contextMenuInstance = null; // Reference to context menus extension API
 let newNodeCounter = 0; // Counter for generating unique default node IDs
+// Flags to track successful registration
 // let didRegisterEdgehandles = false; // REMOVED
 let didRegisterContextMenus = false; // Flag to track successful registration
 let edgeSourceNode = null; // State for click-to-connect edges
@@ -15,8 +16,8 @@ let edgeSourceNode = null; // State for click-to-connect edges
 // ===========================================
 // --- ALL HELPER FUNCTION DEFINITIONS ---
 // ===========================================
+// Define functions BEFORE they are called by DOMContentLoaded or other functions
 
-// Function to calculate node labels including probability
 function nodeLabelFunc(node) {
     const id = node.data('id');
     const fullName = node.data('fullName') || id;
@@ -24,7 +25,6 @@ function nodeLabelFunc(node) {
     return `${id}: ${fullName}\n${currentLabel || '(N/A)'}`;
 }
 
-// Client-side cycle check helper (DFS based) - Verified
 function simulateIsDag(graph) {
     if (!graph || !graph.nodes || !graph.edges) { console.warn("simulateIsDag: Invalid graph structure."); return false; }
     const adj = {}; const nodesSet = new Set();
@@ -55,7 +55,7 @@ async function downloadAllLogs() { if(!currentConfig||!currentConfig.id||current
 function triggerCsvDownload(csvDataOrBlob, baseFilename) { const blob = (csvDataOrBlob instanceof Blob) ? csvDataOrBlob : new Blob([csvDataOrBlob], { type: 'text/csv;charset=utf-8;' }); const link = document.createElement("a"); const url = URL.createObjectURL(blob); link.setAttribute("href", url); const timestampStr = new Date().toISOString().replace(/[:.]/g, '-'); link.setAttribute("download", `${baseFilename}_${timestampStr}.csv`); link.style.visibility = 'hidden'; document.body.appendChild(link); link.click(); document.body.removeChild(link); URL.revokeObjectURL(url); }
 function markConfigUnsaved() { const d = document.getElementById('current-config-name'); if (d && !d.textContent.endsWith('*')) { d.textContent += '*'; setStatusMessage('config-status', "Graph modified. Save changes.", "loading"); } }
 function clearUnsavedMark() { const d = document.getElementById('current-config-name'); if (d && d.textContent.endsWith('*')) { d.textContent = d.textContent.slice(0, -1); } }
-function updateEditorPlaceholderText() { const p=document.querySelector('.graph-editor p'); if(!p)return; let m=""; const menusOk=contextMenuInstance!==null; /* const edgesOk=edgeHandlesInstance!==null; */ const edgesOk=false; // Edgehandles removed for now if(!menusOk&&!edgesOk) m="Editing unavailable: Failed libraries."; else if(!menusOk) m="Right-click menus disabled."; else if(!edgesOk) m="Right-click nodes/canvas to edit."; else m="Right-click nodes/canvas to edit."; p.textContent=m; p.style.color=(menusOk)?'#555':'orange'; }
+function updateEditorPlaceholderText() { const p=document.querySelector('.graph-editor p'); if(!p)return; let m=""; const menusOk=contextMenuInstance!==null; const edgesOk=false; /* edgeHandlesInstance removed */ if(!menusOk&&!edgesOk) m="Editing unavailable: Failed libraries."; else if(!menusOk) m="Right-click menus disabled."; else if(!edgesOk) m="Right-click nodes/canvas to edit."; else m="Right-click nodes/canvas to edit. Start edge via menu."; p.textContent=m; p.style.color=(menusOk)?'#555':'orange'; }
 
 // --- Editing Functions ---
 function addNodeFromMenu(nodeType, position) { if (!cy) return; newNodeCounter++; const idBase = nodeType === 'input' ? 'Input' : 'Hidden'; let id = `${idBase}_${newNodeCounter}`; while (cy.getElementById(id).length > 0) { newNodeCounter++; id = `${idBase}_${newNodeCounter}`; } const name = prompt(`Enter display name for new ${nodeType} node (ID: ${id}):`, id); if (name === null) return; const newNodeData = { group: 'nodes', data: { id: id.trim(), fullName: name.trim() || id.trim(), nodeType: nodeType }, position: position }; cy.add(newNodeData); console.log(`Added ${nodeType} node: ID=${id}, Name=${newNodeData.data.fullName}`); if (nodeType === 'input') { updateInputControls(cy.nodes().map(n => n.data())); } updateNodeProbabilities({}); runLayout(); markConfigUnsaved(); }
@@ -65,7 +65,7 @@ function convertNodeType(targetNode) { if (!cy || !targetNode || !targetNode.isN
 function startEdgeCreation(sourceNode) { if (!cy || !sourceNode || !sourceNode.isNode()) return; edgeSourceNode = sourceNode; setStatusMessage('config-status', `Edge started from ${sourceNode.id()}. Left-click target node...`, 'loading'); sourceNode.addClass('edge-source-active'); console.log("Edge creation started from:", sourceNode.id()); }
 function handleNodeTap(event) { const targetNode = event.target; if (edgeSourceNode && edgeSourceNode.id() !== targetNode.id()) { const sourceId = edgeSourceNode.id(); const targetId = targetNode.id(); if (cy.edges(`[source = "${sourceId}"][target = "${targetId}"]`).length > 0) { setStatusMessage('config-status', `Edge ${sourceId}->${targetId} already exists.`, "error"); } else { const tempEdges = cy.edges().map(e => ({ source: e.source().id(), target: e.target().id() })); tempEdges.push({ source: sourceId, target: targetId }); const tempGraph = { nodes: cy.nodes().map(n => n.data()), edges: tempEdges }; if (!simulateIsDag(tempGraph)) { alert(`Cannot add edge ${sourceId}->${targetId} (creates cycle).`); setStatusMessage('config-status', `Edge aborted (creates cycle).`, "error"); } else { cy.add({ group: 'edges', data: { source: sourceId, target: targetId } }); console.log(`Added edge ${sourceId}->${targetId}`); setStatusMessage('config-status', `Edge ${sourceId}->${targetId} added.`, "success"); markConfigUnsaved(); } } cancelEdgeCreation(); } else if (edgeSourceNode && edgeSourceNode.id() === targetNode.id()) { cancelEdgeCreation(); } }
 function handleCanvasTap(event) { if (edgeSourceNode) { cancelEdgeCreation(); } }
-function cancelEdgeCreation() { if (edgeSourceNode) { edgeSourceNode.removeClass('edge-source-active'); } edgeSourceNode = null; setTimeout(() => { const currentStatusEl = document.getElementById('config-status'); if(currentStatusEl && (currentStatusEl.textContent.includes('Edge started') || currentStatusEl.textContent.includes('aborted'))) { const msg = currentConfig ? `Config '${currentConfig.name}' loaded.` : "Ready."; setStatusMessage('config-status', msg , "success"); } }, 1500); }
+function cancelEdgeCreation() { if (edgeSourceNode) { edgeSourceNode.removeClass('edge-source-active'); } edgeSourceNode = null; setTimeout(() => { const currentStatusEl = document.getElementById('config-status'); if(currentStatusEl && (currentStatusEl.textContent.includes('Edge started') || currentStatusEl.textContent.includes('aborted'))) { const msg = currentConfig ? `Config '${currentConfig.name}${currentConfig && document.getElementById('current-config-name').textContent.endsWith('*') ? '*' : ''}' loaded.` : "Ready."; setStatusMessage('config-status', msg , "success"); } }, 1500); }
 
 // --- Configuration Management Functions ---
 async function loadDefaultConfig() { console.log("Fetching default configuration structure..."); try { await retryFetch(async () => { const r = await fetch('/api/configs/default'); if (!r.ok) throw new Error(`HTTP ${r.status}`); defaultGraphStructure = await r.json(); console.log("Default structure stored."); }, 3); } catch (e) { console.error('Error fetching default struct:', e); defaultGraphStructure = null; throw e; } }
@@ -79,41 +79,34 @@ async function deleteSelectedConfiguration() { const s=document.getElementById('
 
 // --- Cytoscape Event Listeners Setup Function ---
 function setupCytoscapeEventListeners() {
-    if (!cy) {
-        console.error("Cannot setup listeners, Cytoscape not initialized.");
-        return;
-    }
-    // Remove previous listeners if any (safer for potential re-init scenarios)
-    cy.off('tap', 'node', handleNodeTap);
-    cy.off('tap', handleCanvasTap);
-
-    // Add new listeners
-    cy.on('tap', 'node', handleNodeTap); // Listen for taps on nodes
-    cy.on('tap', handleCanvasTap);      // Listen for taps on background
+    if (!cy) { console.error("Cannot setup listeners, Cytoscape not initialized."); return; }
+    cy.off('tap', 'node', handleNodeTap); cy.off('tap', handleCanvasTap); // Remove old before adding
+    cy.on('tap', 'node', handleNodeTap); cy.on('tap', handleCanvasTap);
     console.log("Cytoscape tap listeners added/updated for edge creation.");
 }
 
-// --- Initialization Sequence (Moved to END) ---
+// --- Prediction ---
+async function fetchAndUpdateLLM() { if(!currentConfig||!currentConfig.graph_structure||!currentConfig.graph_structure.nodes.length===0){alert("Load config first.");return;} if(!cy){alert("Graph not ready.");return;} setStatusMessage('predict-status',"Inputs...","loading"); let inputs={input_values:{}}; let invalid=false; currentConfig.graph_structure.nodes.filter(n=>n.nodeType==='input').forEach(n=>{const el=document.getElementById(`input-${n.id}`);const cont=el?.parentElement; let v=0.5; if(el){v=parseFloat(el.value);if(isNaN(v)||v<0||v>1){setStatusMessage('predict-status',`Invalid ${n.id}.`,"error");cont?.classList.add('invalid-input');invalid=true;}else{cont?.classList.remove('invalid-input');}} inputs.input_values[n.id]=isNaN(v)?0.5:Math.max(0,Math.min(1,v));}); if(invalid){setStatusMessage('predict-status',"Fix inputs (0-1).","error");return;} const payload={...inputs,graph_structure:currentConfig.graph_structure,config_id:currentConfig.id,config_name:currentConfig.name}; setStatusMessage('predict-status',"Predicting...","loading"); showSpinner(true); enableUI(false); clearLLMOutputs(); await retryFetch(async()=>{ const r=await fetch('/api/predict_openai_bn_single_call',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}); const d=await r.json(); if(!r.ok)throw new Error(d.detail||`HTTP ${r.status}`); updateNodeProbabilities(d.probabilities); displayLLMReasoning(d.llm_reasoning); displayLLMContext(d.llm_context); setStatusMessage('predict-status',"Complete.","success"); logPrediction(inputs.input_values,d.probabilities);},3,()=>setStatusMessage('predict-status',"Predict fail. Retry...","error")).catch(e=>{console.error("Predict error:",e);setStatusMessage('predict-status',`Predict failed: ${e.message}`,"error");clearLLMOutputs();}).finally(()=>{enableUI(true);showSpinner(false);});}
+
+
+// ==================================================
+// --- DOMContentLoaded Listener (NOW AT THE END) ---
+// ==================================================
 document.addEventListener('DOMContentLoaded', async () => {
     console.log("DOM Content Loaded. Starting initialization...");
 
-    // Check core library and container first
     if (typeof cytoscape !== 'function') { alert("Error: Cytoscape library failed to load."); setStatusMessage('config-status', "Error: Core graph library failed.", "error"); showSpinner(false); return; }
     if (!document.getElementById('cy')) { alert("Error: Graph container element 'cy' not found."); setStatusMessage('config-status', "Error: Graph container missing.", "error"); showSpinner(false); return; }
 
-    // 1. Initialize Cytoscape Instance
-    initializeCytoscape(); // Creates 'cy' instance
+    initializeCytoscape(); // 1. Create 'cy' instance
 
     if (!cy) { showSpinner(false); return; } // Stop if core failed
 
-    // 2. Initialize Editing Extensions (includes registration check)
-    initializeEditingExtensions(); // Tries to register and init extensions on 'cy'
+    initializeEditingExtensions(); // 2. Try to register and init editing extensions
 
-    // 3. Initialize UI Button Listeners
-    initializeUI();
+    initializeUI(); // 3. Set up button listeners
 
-    // 4. Add Cytoscape Listeners for Click-to-Connect
-    setupCytoscapeEventListeners();
+    setupCytoscapeEventListeners(); // 4. Add tap listeners for edge creation
 
     // 5. Load Data
     showSpinner(true);
