@@ -25,6 +25,13 @@
     <script src="https://unpkg.com/cytoscape-edgehandles@4.0.1/cytoscape-edgehandles.js"></script>
     <!-- === END OF EDITING LIBRARIES === -->
 
+    <script>
+        // We will perform robust checks and registration *inside* script.js
+        // during the initialization phases, rather than trying here globally.
+        // This avoids potential race conditions.
+        console.log("HTML: Editing library scripts loaded.");
+    </script>
+
 </head>
 <body>
     <div class="container">
