@@ -25,19 +25,6 @@
     <script src="https://unpkg.com/cytoscape-edgehandles@4.0.1/cytoscape-edgehandles.js"></script>
     <!-- === END OF EDITING LIBRARIES === -->
 
-    <script>
-        // Delay registration until DOM is ready AND libraries are loaded
-        document.addEventListener('DOMContentLoaded', () => {
-             console.log("Registering layouts and extensions...");
-             // Layouts
-             try{ if(window.cola && window.cytoscapeCola) cytoscape.use(cytoscapeCola); else console.warn("Cola layout lib not found.");} catch(e){ console.error("Cola registration failed", e); }
-             try{ if(window.cytoscapeDagre) cytoscape.use(cytoscapeDagre); else console.warn("Dagre layout lib not found.");} catch(e){ console.error("Dagre registration failed", e); }
-             // Editing Extensions
-             try{ if(window.cytoscapeContextMenus && typeof tippy === 'function' && typeof Popper === 'function') cytoscape.use(cytoscapeContextMenus); else console.warn("Context Menus lib or dependencies (Tippy/Popper) not found."); } catch(e){ console.error("Context Menus registration failed", e); }
-             try{ if(window.cytoscapeEdgehandles) cytoscape.use(cytoscapeEdgehandles); else console.warn("Edge Handles lib not found."); } catch(e){ console.error("Edge Handles registration failed", e); }
-             console.log("Layouts and extensions registration attempted.");
-        });
-    </script>
 </head>
 <body>
     <div class="container">
