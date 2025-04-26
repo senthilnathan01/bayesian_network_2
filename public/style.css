@@ -4,23 +4,24 @@ h1, h2, h3 { color: #333; text-align: center; margin-bottom: 0.5em; margin-top: 
 h1 { margin-bottom: 1em; }
 
 /* --- Layout Container --- */
-.container { width: 95%; max-width: 1300px; }
+.container { width: 95%; max-width: 1300px; } /* Allow wider */
 main { display: grid; grid-template-columns: 1fr; gap: 20px; }
 
 /* --- Section Styling --- */
 .graph-editor, .config-section, .input-section, .output-section, .log-section {
     padding: 15px; border: 1px solid #ccc; border-radius: 8px; background-color: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-    overflow: hidden; /* Keep overflow hidden */
+    /* IMPORTANT: Default overflow to hidden */
+    overflow: hidden;
 }
 
-/* Form Element Styling ... (Keep as is) ... */
-label { display: inline-block; margin-bottom: 5px; font-weight: bold; color: #555; min-width: 100px; vertical-align: middle; font-size: 0.9em; }
+/* --- Form Element Styling --- */
+label { display: inline-block; margin-bottom: 5px; font-weight: bold; color: #555; min-width: 100px; vertical-align: middle; font-size: 0.9em;}
 input[type=text], input[type=number], select { padding: 8px; border: 1px solid #ccc; border-radius: 4px; margin-right: 5px; margin-bottom: 8px; vertical-align: middle; font-size: 14px; }
 input[type=number] { width: 70px; }
 button { padding: 8px 12px; background-color: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 14px; transition: background-color 0.2s ease; margin-right: 5px; margin-top: 5px; vertical-align: middle; }
 button:hover { background-color: #0056b3; }
 button:disabled { background-color: #cccccc; cursor: not-allowed; }
-.config-controls > div { margin-bottom: 10px; }
+.config-controls > div, .input-section > div { margin-bottom: 10px; }
 #input-controls-container { margin-bottom: 10px; max-height: 180px; overflow-y: auto; border: 1px solid #eee; padding: 10px; }
 .input-section label { width: auto; min-width: 180px; }
 #set-default-button { background-color: #28a745; } #set-default-button:hover { background-color: #218838; }
@@ -33,15 +34,16 @@ button:disabled { background-color: #cccccc; cursor: not-allowed; }
 .hidden { display: none; }
 
 /* --- Cytoscape Container --- */
+/* Default state - will be overridden in media query */
 #cy {
     width: 100%;
-    height: 550px; /* ** KEY: Keep fixed height here ** */
+    height: 550px;
     border: 1px solid #ccc;
     background-color: #fff;
     display: block;
 }
 
-/* LLM Context & Reasonings ... (Keep as is) ... */
+/* --- LLM Context & Reasonings --- */
 .output-section { word-wrap: break-word; display: flex; flex-direction: column;}
 .output-section h2 { margin-bottom: 10px; flex-shrink: 0;}
 #llm-reasoning-content { background-color: #f8f9fa; border: 1px solid #eee; padding: 15px; border-radius: 5px; margin-bottom: 10px; white-space: pre-wrap; font-size: 0.9em; flex-grow: 1; overflow-y: auto; min-height: 80px;}
@@ -51,23 +53,29 @@ button:disabled { background-color: #cccccc; cursor: not-allowed; }
 .output-section p, .output-section ul { margin-bottom: 5px; color: #333; white-space: pre-wrap; font-size: 0.9em; }
 .output-section ul { padding-left: 20px; }
 
-
 /* --- Graph Editor Section --- */
 .graph-editor {
-    display: flex; flex-direction: column;
-    overflow: hidden; /* Prevent overflow */
+    display: flex; /* Use flexbox */
+    flex-direction: column; /* Stack title, p, and graph vertically */
+    overflow: hidden; /* Crucial: Prevent children from expanding this container */
 }
-.graph-editor h2 { flex-shrink: 0; }
+.graph-editor h2 { flex-shrink: 0; } /* Prevent header shrinking */
 .graph-editor p { flex-shrink: 0; color: #555; font-size: 0.9em; text-align: center; margin-bottom: 10px;}
-/* #cy inside will dictate height via its fixed height */
+/* Let #cy grow to fill the remaining space in the flex container */
+#cy-container { /* Optional: Add a wrapper if needed */
+    flex-grow: 1; /* Allow this div to take up remaining vertical space */
+    position: relative; /* Often needed for canvas positioning */
+    min-height: 450px; /* Ensure a minimum height */
+    overflow: hidden; /* Clip if #cy tries to exceed */
+}
 
 
-/* Logging ... (Keep as is) ... */
+/* --- Logging --- */
 .log-section { margin-top: 0; }
 .log-section p { color: #555; font-size: 0.9em;}
 #log-count { font-weight: bold; }
 
-/* Context Menu & Styles ... (Keep as is) ... */
+/* --- Context Menu & Styles --- */
 .ctx-menu { display: none; z-index: 1000; background-color: #ffffff; border: 1px solid #b0b0b0; border-radius: 4px; min-width: 160px; box-shadow: 0 3px 6px rgba(0,0,0,0.15); padding: 4px 0; }
 .ctx-menu-item { display: block; padding: 6px 12px; color: #333; cursor: pointer; font-size: 14px; white-space: nowrap; }
 .ctx-menu-item:hover { background-color: #e9e9e9; }
@@ -75,56 +83,72 @@ button:disabled { background-color: #cccccc; cursor: not-allowed; }
 .tippy-box[data-theme~='light'] { background-color: #333; color: white; border-radius: 4px; padding: 5px 10px; font-size: 13px;}
 .tippy-arrow { color: #333; }
 .edge-source-active { border: 3px solid #00dd00 !important; box-shadow: 0 0 8px #00dd00; }
+.eh-grabbed { border: 3px solid #007bff !important; box-shadow: 0 0 8px #007bff; } /* Style for edge handles if re-enabled */
 
 
 /* ============================================ */
-/* --- RESPONSIVE GRID LAYOUT - REVERTED/SIMPLIFIED --- */
+/* --- RESPONSIVE GRID LAYOUT - FINAL ATTEMPT --- */
 /* ============================================ */
 @media (min-width: 1000px) {
     main {
         display: grid;
-        grid-template-columns: 2fr 1fr; /* Graph | Controls */
-        /* Let rows be determined by content height, especially the graph */
-        grid-template-rows: auto auto auto auto; /* Config | Inputs | Reasoning | Logs */
-        /* Remove overall height constraint on main - let content push */
-        /* max-height: calc(100vh - 80px); */
-        /* overflow: hidden; */
+        grid-template-columns: 2fr 1fr; /* Graph takes 2/3 width */
+        /* Define rows more simply: Auto height for controls, let graph span */
+        grid-template-rows: auto auto auto auto; /* Config, Inputs, Reasoning, Logs */
+        gap: 20px;
+        /* Constrain overall height to prevent excessive vertical growth */
+        height: calc(100vh - 80px); /* Adjust 80px based on header/padding */
+        max-height: 850px; /* Absolute max */
+        overflow: hidden; /* Prevent grid itself expanding vertically */
     }
 
     .graph-editor {
         grid-column: 1 / 2;
-        grid-row: 1 / 5; /* ** KEY: Span ALL rows defined for the right column + logs */
-        /* Allow internal scrolling ONLY if absolutely necessary (fixed #cy height should prevent) */
-         overflow: hidden; /* Change back from auto to hidden */
-         /* height: auto; */ /* Let the grid cell size itself */
-         /* min-height: 600px; */ /* Remove min height constraint */
-    }
-     /* #cy keeps its fixed 550px height defined above */
-
-    /* Controls on the right */
-    .config-section { grid-column: 2 / 3; grid-row: 1 / 2; }
-    .input-section { grid-column: 2 / 3; grid-row: 2 / 3; }
-    .output-section { grid-column: 2 / 3; grid-row: 3 / 4; }
-
-    /* ** KEY: Add Max height and scrolling to control sections */
-    .config-section, .input-section, .output-section {
-        max-height: 250px; /* Adjust this max height as needed */
-        overflow-y: auto;  /* Add scroll if content exceeds max-height */
-        /* Ensure they remain flex columns if needed for internal layout */
+        grid-row: 1 / 5; /* Let graph editor span ALL defined rows */
+        /* Use flexbox to manage internal heights */
         display: flex;
         flex-direction: column;
+        overflow: hidden; /* MUST prevent content overflow */
+        min-height: 0; /* Allow flex item to shrink if needed */
     }
-     /* Adjust reasoning box growth within its flex container */
-     #llm-reasoning-content {
+    #cy {
+        flex-grow: 1; /* Allow canvas to take up all available vertical space in parent */
+        height: auto; /* Remove fixed height */
+        min-height: 400px; /* Prevent excessive shrinking */
+        width: 100%;
+        display: block;
+    }
+
+    /* Controls on the right, stacking within their auto rows */
+    .config-section {
+        grid-column: 2 / 3;
+        grid-row: 1 / 2;
+        overflow-y: auto; /* Allow scroll if content exceeds auto height */
+    }
+    .input-section {
+        grid-column: 2 / 3;
+        grid-row: 2 / 3;
+        overflow-y: auto;
+    }
+    .output-section {
+        grid-column: 2 / 3;
+        grid-row: 3 / 4;
+        overflow-y: auto; /* Let this section scroll if needed */
+        display: flex;
+        flex-direction: column;
+        /* Give it a reasonable minimum height */
+        min-height: 200px;
+    }
+    #llm-reasoning-content {
+         /* Let it grow but scroll internally */
          flex-grow: 1;
-         min-height: 100px;
-         /* overflow-y: auto; */ /* Already scrollable via parent .output-section */
-     }
+         overflow-y: auto;
+         min-height: 80px;
+    }
 
     .log-section {
-        grid-column: 2 / 3; /* ** KEY: Place logs in the 4th row of the RIGHT column */
+        grid-column: 2 / 3; /* Place logs below controls */
         grid-row: 4 / 5;
-         overflow-y: auto; /* Allow scroll */
-         max-height: 150px; /* Limit log section height */
+        overflow-y: auto;
     }
 }
