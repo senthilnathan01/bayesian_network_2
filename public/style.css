@@ -10,7 +10,6 @@ main { display: grid; grid-template-columns: 1fr; gap: 20px; }
 /* --- Section Styling --- */
 .graph-editor, .config-section, .input-section, .output-section, .log-section {
     padding: 15px; border: 1px solid #ccc; border-radius: 8px; background-color: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-    /* IMPORTANT: Default overflow to hidden */
     overflow: hidden;
 }
 
@@ -58,12 +57,13 @@ button:disabled { background-color: #cccccc; cursor: not-allowed; }
     display: flex; /* Use flexbox */
     flex-direction: column; /* Stack title, p, and graph vertically */
     overflow: hidden; /* Crucial: Prevent children from expanding this container */
+    max-width: 150 px;
 }
 .graph-editor h2 { flex-shrink: 0; } /* Prevent header shrinking */
 .graph-editor p { flex-shrink: 0; color: #555; font-size: 0.9em; text-align: center; margin-bottom: 10px;}
 /* Let #cy grow to fill the remaining space in the flex container */
 #cy-container { /* Optional: Add a wrapper if needed */
-    flex-grow: 1; /* Allow this div to take up remaining vertical space */
+    flex-grow: 0; /* Allow this div to take up remaining vertical space */
     position: relative; /* Often needed for canvas positioning */
     min-height: 450px; /* Ensure a minimum height */
     overflow: hidden; /* Clip if #cy tries to exceed */
@@ -112,7 +112,7 @@ button:disabled { background-color: #cccccc; cursor: not-allowed; }
         min-height: 0; /* Allow flex item to shrink if needed */
     }
     #cy {
-        flex-grow: 1; /* Allow canvas to take up all available vertical space in parent */
+        flex-grow: 0; /* Allow canvas to take up all available vertical space in parent */
         height: auto; /* Remove fixed height */
         min-height: 400px; /* Prevent excessive shrinking */
         width: 100%;
