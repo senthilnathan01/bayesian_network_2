@@ -17,62 +17,119 @@ function nodeLabelFunc(node) {
     return `${id}: ${fullName}\n${currentLabel || '(N/A)'}`;
 }
 
-// --- Initialization ---
+// Client-side cycle check helper
+function simulateIsDag(graph) {
+    const adj = {}; const nodesSet = new Set();
+    graph.nodes.forEach(n => { adj[n.id] = []; nodesSet.add(n.id); });
+    graph.edges.forEach(e => { if(e.source in adj && nodesSet.has(e.target)) adj[e.source].push(e.target); });
+    const path = new Set(); const visited = new Set();
+    function dfs(node) {
+        path.add(node); visited.add(node);
+        for (const neighbor of adj[node] || []) {
+            if (!nodesSet.has(neighbor)) continue;
+            if (path.has(neighbor)) return false; // Cycle
+            if (!visited.has(neighbor)) { if (!dfs(neighbor)) return false; }
+        }
+        path.delete(node); return true;
+    }
+    for (const node of nodesSet) { if (!visited.has(node)) { if (!dfs(node)) return false; } }
+    return true;
+}
+
+// --- Utility Functions ---
+function selectConfigInDropdown(configId) { const select = document.getElementById('load-config-select'); select.value = configId; }
+function enableUI(enable) { const buttons = document.querySelectorAll('button'); const inputs = document.querySelectorAll('input, select'); buttons.forEach(btn => btn.disabled = !enable); inputs.forEach(inp => inp.disabled = !enable); document.getElementById('gradient-toggle').disabled = false; document.body.style.cursor = enable ? 'default' : 'wait'; }
+function showSpinner(show) { document.getElementById('loading-spinner').classList.toggle('hidden', !show); }
+function runLayout() { if (!cy) return; let l = 'cola'; try { cy.layout({ name: 'cola', animate:true, nodeSpacing: 50, edgeLength: 180, padding: 30 }).run(); } catch (e) { console.warn('Cola failed, using dagre'); l = 'dagre'; try { cy.layout({ name: 'dagre', rankDir:'TB', spacingFactor: 1.2 }).run(); } catch (e) { console.error('Layouts failed'); l = 'grid'; try { cy.layout({ name: 'grid' }).run(); } catch(e) { console.error("Grid layout failed too!")}}} console.log('Using layout:', l); }
+function updateInputControls(nodes) { const c = document.getElementById('input-controls-container'); c.innerHTML = ''; const iN = nodes.filter(n => n.nodeType === 'input'); if (iN.length === 0) { c.innerHTML = '<p>No input nodes defined.</p>'; return; } iN.forEach(n => { const d = document.createElement('div'); const l = document.createElement('label'); l.htmlFor = `input-${n.id}`; l.textContent = `${n.id} (${n.fullName || n.id}):`; const i = document.createElement('input'); i.type = 'number'; i.id = `input-${n.id}`; i.name = n.id; i.min = "0"; i.max = "1"; i.step = "0.01"; i.value = "0.5"; d.appendChild(l); d.appendChild(i); c.appendChild(d); }); }
+async function fetchAndUpdateLLM() { /* ... (Prediction logic - unchanged from previous good version) ... */ if (!currentConfig || !currentConfig.graph_structure || !currentConfig.graph_structure.nodes.length === 0) { alert("Load config first."); return; } if (!cy) { alert("Graph not ready."); return; } setStatusMessage('predict-status', "Gathering inputs...", "loading"); let inputs = { input_values: {} }; let invalid = false; currentConfig.graph_structure.nodes.filter(n => n.nodeType === 'input').forEach(n => { const el = document.getElementById(`input-${n.id}`); const cont = el?.parentElement; let v = 0.5; if (el) { v = parseFloat(el.value); if (isNaN(v) || v < 0 || v > 1) { setStatusMessage('predict-status', `Invalid input for ${n.id}.`, "error"); cont?.classList.add('invalid-input'); invalid = true; } else { cont?.classList.remove('invalid-input'); } } inputs.input_values[n.id] = isNaN(v)?0.5:Math.max(0, Math.min(1, v)); }); if (invalid) { setStatusMessage('predict-status', "Fix invalid inputs (0-1).", "error"); return; } const payload = { ...inputs, graph_structure: currentConfig.graph_structure, config_id: currentConfig.id, config_name: currentConfig.name }; setStatusMessage('predict-status', "Running prediction...", "loading"); showSpinner(true); enableUI(false); clearLLMOutputs(); await retryFetch(async () => { const r = await fetch('/api/predict_openai_bn_single_call', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); const d = await r.json(); if (!r.ok) throw new Error(d.detail || `HTTP error ${r.status}`); updateNodeProbabilities(d.probabilities); displayLLMReasoning(d.llm_reasoning); displayLLMContext(d.llm_context); setStatusMessage('predict-status', "Prediction complete.", "success"); logPrediction(inputs.input_values, d.probabilities); }, 3, () => setStatusMessage('predict-status', "Prediction failed. Retrying...", "error")).catch(e => { console.error("Predict error:", e); setStatusMessage('predict-status', `Prediction failed: ${e.message}`, "error"); clearLLMOutputs(); }).finally(() => { enableUI(true); showSpinner(false); }); }
+function updateNodeProbabilities(probabilities) { /* ... (Node styling logic - unchanged) ... */ if (!cy) return; const useGradient = document.getElementById('gradient-toggle').checked; cy.nodes().forEach(node => { const nodeId = node.id(); const nodeType = node.data('nodeType'); let probState1 = null; if (probabilities && probabilities[nodeId] && probabilities[nodeId]["1"] !== undefined) { probState1 = probabilities[nodeId]["1"]; node.data('currentProbLabel', `P(1)=${probState1.toFixed(3)}`); } else if (nodeType === 'input') { const inputElement = document.getElementById(`input-${nodeId}`); const currentVal = inputElement ? (parseFloat(inputElement.value) || 0.5) : 0.5; probState1 = currentVal; node.data('currentProbLabel', `P(1)=${probState1.toFixed(3)}`); } else { node.data('currentProbLabel', '(N/A)'); } let baseBgColor = nodeType === 'input' ? '#add8e6' : '#f0e68c'; let textColor = '#333'; let finalBgColor = baseBgColor; if (probState1 !== null) { if (useGradient) { finalBgColor = `rgb(${Math.round(255 * (1 - probState1))}, ${Math.round(255 * probState1)}, 0)`; textColor = '#333'; } else { finalBgColor = '#4B0082'; textColor = '#FFFFFF'; } } else if (!useGradient && nodeType !== 'input') { finalBgColor = '#4B0082'; textColor = '#FFFFFF'; } node.style({ 'background-color': finalBgColor, 'color': textColor }); }); cy.style().update(); }
+function displayLLMReasoning(reasoningText) { /* ... (Display reasoning - unchanged) ... */ const d = document.getElementById('llm-reasoning-content'); d.textContent = reasoningText || "N/A"; }
+function displayLLMContext(context) { /* ... (Display context - unchanged) ... */ if (!context) return; const iD = document.getElementById('input-context'); const sD = document.getElementById('structure-context'); const dD = document.getElementById('node-descriptions-context'); let iH='<ul>';(context.input_states||[]).forEach(s=>{iH+=`<li>${s.node}(${s.description}): ${s.state} (p=${s.value.toFixed(2)})</li>`;});iH+='</ul>';iD.innerHTML=iH||'N/A'; let sH='<ul>';Object.entries(context.node_dependencies||{}).forEach(([n,p])=>{sH+=`<li>${n}: ${p.join(',')||'None'}</li>`;});sH+='</ul>';sD.innerHTML=sH||'N/A'; let dH='<ul>';Object.entries(context.node_descriptions||{}).forEach(([n,d])=>{dH+=`<li>${n}: ${d}</li>`;});dH+='</ul>';dD.innerHTML=dH||'N/A';}
+function setStatusMessage(elementId, message, type) { /* ... (Set status text/class - unchanged) ... */ const el = document.getElementById(elementId); if (el) { el.textContent = message; el.className = `status-message ${type||''}`; } }
+async function retryFetch(fetchFn, maxRetries, onRetry) { /* ... (Retry logic - unchanged) ... */ let lastError; for (let attempt = 1; attempt <= maxRetries; attempt++) { try { await fetchFn(); return; } catch (error) { lastError = error; console.warn(`Attempt ${attempt} failed: ${error.message}`); if (attempt < maxRetries) { if(onRetry) onRetry(); await new Promise(resolve => setTimeout(resolve, 1000 * attempt)); } } } throw lastError; }
+function logPrediction(inputs, probabilities) { /* ... (Session logging - unchanged) ... */ const logEntry = { timestamp: new Date().toISOString(), configId: currentConfig ? currentConfig.id : "unknown", configName: currentConfig ? currentConfig.name : "Unknown", inputs: { ...inputs }, probabilities: {} }; for (const n in probabilities) { logEntry.probabilities[n] = probabilities[n]["1"]; } for (const i in inputs) { if (!(i in logEntry.probabilities)) { logEntry.probabilities[i] = inputs[i]; } } sessionLog.push(logEntry); document.getElementById('log-count').textContent = `Session logs: ${sessionLog.length}`; }
+function clearSessionLog() { /* ... (Clear log array/UI - unchanged) ... */ sessionLog = []; document.getElementById('log-count').textContent = `Session logs: 0`; }
+function clearLLMOutputs() { /* ... (Clear reasoning/context/status - unchanged) ... */ document.getElementById('llm-reasoning-content').textContent = 'Run prediction...'; document.getElementById('input-context').innerHTML = '<p>N/A</p>'; document.getElementById('structure-context').innerHTML = '<p>N/A</p>'; document.getElementById('node-descriptions-context').innerHTML = '<p>N/A</p>'; setStatusMessage('predict-status', "", ""); }
+function downloadSessionLog() { /* ... (Download session CSV - unchanged) ... */ if (sessionLog.length === 0) { alert("No logs."); return; } const h=['Timestamp','ConfigID','ConfigName','NodeID','ProbP1']; const r=[]; sessionLog.forEach(l=>{ const probs = l.probabilities || {}; Object.entries(probs).forEach(([n,p])=>{ if(typeof p === 'number') r.push([l.timestamp,l.configId,l.configName,n,p.toFixed(4)]); else console.warn("Skipping non-numeric probability in session log for node:", n); }); }); const csv=Papa.unparse({fields:h,data:r}); triggerCsvDownload(csv, `session_log_${(currentConfig?.name||'unsaved').replace(/[^a-z0-9]/gi,'_')}`); }
+async function downloadAllLogs() { /* ... (Download all logs CSV - unchanged) ... */ if (!currentConfig || !currentConfig.id || currentConfig.id === "unknown" || currentConfig.id === "default-config-001") { alert("Load saved config."); return; } setStatusMessage('predict-status', "Downloading logs...", "loading"); showSpinner(true); enableUI(false); await retryFetch(async () => { const r = await fetch(`/api/download_log/${currentConfig.id}`); if (!r.ok) { if (r.status === 404) throw new Error(`No logs found for '${currentConfig.name}'.`); const e = await r.json().catch(()=>({detail:`HTTP ${r.status}`})); throw new Error(e.detail); } const b = await r.blob(); triggerCsvDownload(b, `all_logs_${currentConfig.name.replace(/[^a-z0-9]/gi,'_')}`); setStatusMessage('predict-status', "Logs downloaded.", "success"); }, 3, () => setStatusMessage('predict-status', "Download failed. Retrying...", "error")).catch(e=>{setStatusMessage('predict-status',`Log download failed: ${e.message}`,"error");}).finally(() => { enableUI(true); showSpinner(false); }); }
+function triggerCsvDownload(csvDataOrBlob, baseFilename) { /* ... (Trigger browser download - unchanged) ... */ const blob = (csvDataOrBlob instanceof Blob) ? csvDataOrBlob : new Blob([csvDataOrBlob], { type: 'text/csv;charset=utf-8;' }); const link = document.createElement("a"); const url = URL.createObjectURL(blob); link.setAttribute("href", url); const timestampStr = new Date().toISOString().replace(/[:.]/g, '-'); link.setAttribute("download", `${baseFilename}_${timestampStr}.csv`); link.style.visibility = 'hidden'; document.body.appendChild(link); link.click(); document.body.removeChild(link); URL.revokeObjectURL(url); }
+
+function markConfigUnsaved() {
+    const configNameDisplay = document.getElementById('current-config-name');
+    if (configNameDisplay && !configNameDisplay.textContent.endsWith('*')) {
+        configNameDisplay.textContent += '*';
+        setStatusMessage('config-status', "Graph modified. Save changes.", "loading");
+    }
+}
+
+function clearUnsavedMark() {
+     const configNameDisplay = document.getElementById('current-config-name');
+     if (configNameDisplay && configNameDisplay.textContent.endsWith('*')) {
+         configNameDisplay.textContent = configNameDisplay.textContent.slice(0, -1);
+     }
+}
+
+// --- Initialization Sequence ---
 document.addEventListener('DOMContentLoaded', async () => {
     console.log("DOM Content Loaded. Starting initialization...");
 
-    // Check for libraries needed for core functionality
+    // Check core library and container first
     if (typeof cytoscape !== 'function') {
-        alert("Error: Cytoscape library is not loaded. Check script tags and network errors.");
-        setStatusMessage('config-status', "Error: Core graph library failed to load.", "error");
-        showSpinner(false);
-        return;
+        alert("Error: Cytoscape library failed to load.");
+        setStatusMessage('config-status', "Error: Core graph library failed.", "error");
+        showSpinner(false); return;
     }
     if (!document.getElementById('cy')) {
-        alert("Error: Cannot find graph container id='cy'. Check index.html.");
+        alert("Error: Graph container element 'cy' not found.");
         setStatusMessage('config-status', "Error: Graph container missing.", "error");
-        showSpinner(false);
-        return;
+        showSpinner(false); return;
     }
 
     // 1. Initialize Cytoscape Instance
-    initializeCytoscape(); // Creates 'cy' instance, uses nodeLabelFunc
+    initializeCytoscape(); // Creates 'cy' instance
 
-    // Check if cy initialization succeeded
-    if (cy) {
-         // 2. Initialize Editing Extensions (Context Menus, Edge Handles)
-         // This will ALSO register them using cytoscape.use()
-         initializeEditingExtensions();
-    } else {
-        // Alert already shown inside initializeCytoscape's catch block
-        console.error("Cytoscape core failed to initialize. Cannot proceed.");
-        showSpinner(false);
-        return;
+    if (!cy) {
+        // Error handling already inside initializeCytoscape
+        showSpinner(false); return;
     }
 
-    // 3. Initialize UI Button Listeners etc.
+    // 2. Initialize Editing Extensions (includes registration check)
+    initializeEditingExtensions(); // Tries to register and init extensions on 'cy'
+
+    // 3. Initialize UI Button Listeners
     initializeUI();
 
-    // 4. Load Default Config and Saved List
-    setStatusMessage('config-status', "Loading default graph...", "loading");
+    // 4. Load Data (Default & Saved)
     showSpinner(true);
+    setStatusMessage('config-status', "Loading config data...", "loading");
     try {
-        await loadDefaultConfig();
+        await loadDefaultConfig(); // Fetch default structure
         if (defaultGraphStructure) {
-            loadGraphData(defaultGraphStructure, true);
+            loadGraphData(defaultGraphStructure, true); // Load default into cy
             addDefaultToDropdown();
-            selectConfigInDropdown(defaultGraphStructure.id);
-            setStatusMessage('config-status', "Default config loaded.", "success");
-        } else { /* ... error handling ... */ throw new Error("Default config data unavailable."); }
-    } catch (error) { /* ... error handling ... */ console.error("Init default error:", error); setStatusMessage('config-status', `Default load failed: ${error.message}`, "error"); updateInputControls([]); document.getElementById('current-config-name').textContent = "None"; }
+            // Select default only if no other config ID is selected/remembered
+            const select = document.getElementById('load-config-select');
+            if(!select.value || select.value === "") {
+                selectConfigInDropdown(defaultGraphStructure.id);
+            }
+        } else { /* Handle error */ throw new Error("Default config data unavailable."); }
 
-    setStatusMessage('config-status', "Loading saved configurations...", "loading");
-    try {
-        await loadConfigList();
+        await loadConfigList(); // Fetch saved configs
         const finalStatus = currentConfig ? `Config '${currentConfig.name}' loaded.` : "Ready.";
-        if (!document.getElementById('config-status').classList.contains('error')) { setStatusMessage('config-status', finalStatus, "success"); }
-    } catch (error) { /* ... error handling ... */ console.error("Init saved list error:", error); if (!document.getElementById('config-status').classList.contains('error')) { setStatusMessage('config-status', `Failed list load: ${error.message}`, "error"); } }
-    finally { showSpinner(false); }
+        setStatusMessage('config-status', finalStatus, "success");
+
+    } catch (error) {
+        console.error("Initialization Data Load Error:", error);
+        setStatusMessage('config-status', `Initialization failed: ${error.message}`, "error");
+        // Ensure UI is somewhat usable even if data load fails
+         if (!currentConfig) { // If no config loaded at all
+             updateInputControls([]);
+             document.getElementById('current-config-name').textContent = "None";
+         }
+    } finally {
+        showSpinner(false);
+    }
 });
 
 // --- Cytoscape Core Initialization ---
@@ -232,41 +289,6 @@ function convertNodeType(targetNode) {
     }
 }
 
-// Client-side cycle check helper
-function simulateIsDag(graph) {
-    const adj = {}; const nodesSet = new Set();
-    graph.nodes.forEach(n => { adj[n.id] = []; nodesSet.add(n.id); });
-    graph.edges.forEach(e => { if(e.source in adj && nodesSet.has(e.target)) adj[e.source].push(e.target); });
-    const path = new Set(); const visited = new Set();
-    function dfs(node) {
-        path.add(node); visited.add(node);
-        for (const neighbor of adj[node] || []) {
-            if (!nodesSet.has(neighbor)) continue;
-            if (path.has(neighbor)) return false; // Cycle
-            if (!visited.has(neighbor)) { if (!dfs(neighbor)) return false; }
-        }
-        path.delete(node); return true;
-    }
-    for (const node of nodesSet) { if (!visited.has(node)) { if (!dfs(node)) return false; } }
-    return true;
-}
-
-function markConfigUnsaved() {
-    const configNameDisplay = document.getElementById('current-config-name');
-    if (configNameDisplay && !configNameDisplay.textContent.endsWith('*')) {
-        configNameDisplay.textContent += '*';
-        setStatusMessage('config-status', "Graph modified. Save changes.", "loading");
-    }
-}
-
-function clearUnsavedMark() {
-     const configNameDisplay = document.getElementById('current-config-name');
-     if (configNameDisplay && configNameDisplay.textContent.endsWith('*')) {
-         configNameDisplay.textContent = configNameDisplay.textContent.slice(0, -1);
-     }
-}
-
-
 // --- Configuration Management Functions ---
 
 async function loadDefaultConfig() {
@@ -356,24 +378,5 @@ async function deleteSelectedConfiguration() {
      const select = document.getElementById('load-config-select'); const configId = select.value; const configName = select.options[select.selectedIndex].text; if (!configId || configId === 'default-config-001') { setStatusMessage('config-status', "Select saved config.", "error"); return; } if (!confirm(`Delete "${configName}"?`)) return; setStatusMessage('config-status', `Deleting...`, "loading"); showSpinner(true); enableUI(false);
      await retryFetch(async () => { const r = await fetch(`/api/configs/${configId}`, { method: 'DELETE' }); const d = await r.json(); if (!r.ok) throw new Error(d.detail || `HTTP error ${r.status}`); setStatusMessage('config-status', `Deleted '${configName}'.`, "success"); if (currentConfig && currentConfig.id === configId) { if(defaultGraphStructure) { loadGraphData(defaultGraphStructure, true); setStatusMessage('config-status', `Deleted '${configName}'. Default loaded.`, "success"); } else { cy.elements().remove(); currentConfig = null; updateInputControls([]); clearSessionLog(); clearLLMOutputs(); document.getElementById('current-config-name').textContent = "None"; setStatusMessage('config-status', `Deleted '${configName}'. Load another.`, "success"); } } await loadConfigList(); }, 3, () => setStatusMessage('config-status', "Delete failed. Retrying...", "error")) .catch(e => { console.error('Delete config error:', e); setStatusMessage('config-status', `Delete failed: ${e.message}`, "error"); }) .finally(() => { enableUI(true); showSpinner(false); });
 }
-
-// --- Utility Functions ---
-function selectConfigInDropdown(configId) { const select = document.getElementById('load-config-select'); select.value = configId; }
-function enableUI(enable) { const buttons = document.querySelectorAll('button'); const inputs = document.querySelectorAll('input, select'); buttons.forEach(btn => btn.disabled = !enable); inputs.forEach(inp => inp.disabled = !enable); document.getElementById('gradient-toggle').disabled = false; document.body.style.cursor = enable ? 'default' : 'wait'; }
-function showSpinner(show) { document.getElementById('loading-spinner').classList.toggle('hidden', !show); }
-function runLayout() { if (!cy) return; let l = 'cola'; try { cy.layout({ name: 'cola', animate:true, nodeSpacing: 50, edgeLength: 180, padding: 30 }).run(); } catch (e) { console.warn('Cola failed, using dagre'); l = 'dagre'; try { cy.layout({ name: 'dagre', rankDir:'TB', spacingFactor: 1.2 }).run(); } catch (e) { console.error('Layouts failed'); l = 'grid'; try { cy.layout({ name: 'grid' }).run(); } catch(e) { console.error("Grid layout failed too!")}}} console.log('Using layout:', l); }
-function updateInputControls(nodes) { const c = document.getElementById('input-controls-container'); c.innerHTML = ''; const iN = nodes.filter(n => n.nodeType === 'input'); if (iN.length === 0) { c.innerHTML = '<p>No input nodes defined.</p>'; return; } iN.forEach(n => { const d = document.createElement('div'); const l = document.createElement('label'); l.htmlFor = `input-${n.id}`; l.textContent = `${n.id} (${n.fullName || n.id}):`; const i = document.createElement('input'); i.type = 'number'; i.id = `input-${n.id}`; i.name = n.id; i.min = "0"; i.max = "1"; i.step = "0.01"; i.value = "0.5"; d.appendChild(l); d.appendChild(i); c.appendChild(d); }); }
-async function fetchAndUpdateLLM() { /* ... (Prediction logic - unchanged from previous good version) ... */ if (!currentConfig || !currentConfig.graph_structure || !currentConfig.graph_structure.nodes.length === 0) { alert("Load config first."); return; } if (!cy) { alert("Graph not ready."); return; } setStatusMessage('predict-status', "Gathering inputs...", "loading"); let inputs = { input_values: {} }; let invalid = false; currentConfig.graph_structure.nodes.filter(n => n.nodeType === 'input').forEach(n => { const el = document.getElementById(`input-${n.id}`); const cont = el?.parentElement; let v = 0.5; if (el) { v = parseFloat(el.value); if (isNaN(v) || v < 0 || v > 1) { setStatusMessage('predict-status', `Invalid input for ${n.id}.`, "error"); cont?.classList.add('invalid-input'); invalid = true; } else { cont?.classList.remove('invalid-input'); } } inputs.input_values[n.id] = isNaN(v)?0.5:Math.max(0, Math.min(1, v)); }); if (invalid) { setStatusMessage('predict-status', "Fix invalid inputs (0-1).", "error"); return; } const payload = { ...inputs, graph_structure: currentConfig.graph_structure, config_id: currentConfig.id, config_name: currentConfig.name }; setStatusMessage('predict-status', "Running prediction...", "loading"); showSpinner(true); enableUI(false); clearLLMOutputs(); await retryFetch(async () => { const r = await fetch('/api/predict_openai_bn_single_call', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); const d = await r.json(); if (!r.ok) throw new Error(d.detail || `HTTP error ${r.status}`); updateNodeProbabilities(d.probabilities); displayLLMReasoning(d.llm_reasoning); displayLLMContext(d.llm_context); setStatusMessage('predict-status', "Prediction complete.", "success"); logPrediction(inputs.input_values, d.probabilities); }, 3, () => setStatusMessage('predict-status', "Prediction failed. Retrying...", "error")).catch(e => { console.error("Predict error:", e); setStatusMessage('predict-status', `Prediction failed: ${e.message}`, "error"); clearLLMOutputs(); }).finally(() => { enableUI(true); showSpinner(false); }); }
-function updateNodeProbabilities(probabilities) { /* ... (Node styling logic - unchanged) ... */ if (!cy) return; const useGradient = document.getElementById('gradient-toggle').checked; cy.nodes().forEach(node => { const nodeId = node.id(); const nodeType = node.data('nodeType'); let probState1 = null; if (probabilities && probabilities[nodeId] && probabilities[nodeId]["1"] !== undefined) { probState1 = probabilities[nodeId]["1"]; node.data('currentProbLabel', `P(1)=${probState1.toFixed(3)}`); } else if (nodeType === 'input') { const inputElement = document.getElementById(`input-${nodeId}`); const currentVal = inputElement ? (parseFloat(inputElement.value) || 0.5) : 0.5; probState1 = currentVal; node.data('currentProbLabel', `P(1)=${probState1.toFixed(3)}`); } else { node.data('currentProbLabel', '(N/A)'); } let baseBgColor = nodeType === 'input' ? '#add8e6' : '#f0e68c'; let textColor = '#333'; let finalBgColor = baseBgColor; if (probState1 !== null) { if (useGradient) { finalBgColor = `rgb(${Math.round(255 * (1 - probState1))}, ${Math.round(255 * probState1)}, 0)`; textColor = '#333'; } else { finalBgColor = '#4B0082'; textColor = '#FFFFFF'; } } else if (!useGradient && nodeType !== 'input') { finalBgColor = '#4B0082'; textColor = '#FFFFFF'; } node.style({ 'background-color': finalBgColor, 'color': textColor }); }); cy.style().update(); }
-function displayLLMReasoning(reasoningText) { /* ... (Display reasoning - unchanged) ... */ const d = document.getElementById('llm-reasoning-content'); d.textContent = reasoningText || "N/A"; }
-function displayLLMContext(context) { /* ... (Display context - unchanged) ... */ if (!context) return; const iD = document.getElementById('input-context'); const sD = document.getElementById('structure-context'); const dD = document.getElementById('node-descriptions-context'); let iH='<ul>';(context.input_states||[]).forEach(s=>{iH+=`<li>${s.node}(${s.description}): ${s.state} (p=${s.value.toFixed(2)})</li>`;});iH+='</ul>';iD.innerHTML=iH||'N/A'; let sH='<ul>';Object.entries(context.node_dependencies||{}).forEach(([n,p])=>{sH+=`<li>${n}: ${p.join(',')||'None'}</li>`;});sH+='</ul>';sD.innerHTML=sH||'N/A'; let dH='<ul>';Object.entries(context.node_descriptions||{}).forEach(([n,d])=>{dH+=`<li>${n}: ${d}</li>`;});dH+='</ul>';dD.innerHTML=dH||'N/A';}
-function setStatusMessage(elementId, message, type) { /* ... (Set status text/class - unchanged) ... */ const el = document.getElementById(elementId); if (el) { el.textContent = message; el.className = `status-message ${type||''}`; } }
-async function retryFetch(fetchFn, maxRetries, onRetry) { /* ... (Retry logic - unchanged) ... */ let lastError; for (let attempt = 1; attempt <= maxRetries; attempt++) { try { await fetchFn(); return; } catch (error) { lastError = error; console.warn(`Attempt ${attempt} failed: ${error.message}`); if (attempt < maxRetries) { if(onRetry) onRetry(); await new Promise(resolve => setTimeout(resolve, 1000 * attempt)); } } } throw lastError; }
-function logPrediction(inputs, probabilities) { /* ... (Session logging - unchanged) ... */ const logEntry = { timestamp: new Date().toISOString(), configId: currentConfig ? currentConfig.id : "unknown", configName: currentConfig ? currentConfig.name : "Unknown", inputs: { ...inputs }, probabilities: {} }; for (const n in probabilities) { logEntry.probabilities[n] = probabilities[n]["1"]; } for (const i in inputs) { if (!(i in logEntry.probabilities)) { logEntry.probabilities[i] = inputs[i]; } } sessionLog.push(logEntry); document.getElementById('log-count').textContent = `Session logs: ${sessionLog.length}`; }
-function clearSessionLog() { /* ... (Clear log array/UI - unchanged) ... */ sessionLog = []; document.getElementById('log-count').textContent = `Session logs: 0`; }
-function clearLLMOutputs() { /* ... (Clear reasoning/context/status - unchanged) ... */ document.getElementById('llm-reasoning-content').textContent = 'Run prediction...'; document.getElementById('input-context').innerHTML = '<p>N/A</p>'; document.getElementById('structure-context').innerHTML = '<p>N/A</p>'; document.getElementById('node-descriptions-context').innerHTML = '<p>N/A</p>'; setStatusMessage('predict-status', "", ""); }
-function downloadSessionLog() { /* ... (Download session CSV - unchanged) ... */ if (sessionLog.length === 0) { alert("No logs."); return; } const h=['Timestamp','ConfigID','ConfigName','NodeID','ProbP1']; const r=[]; sessionLog.forEach(l=>{ const probs = l.probabilities || {}; Object.entries(probs).forEach(([n,p])=>{ if(typeof p === 'number') r.push([l.timestamp,l.configId,l.configName,n,p.toFixed(4)]); else console.warn("Skipping non-numeric probability in session log for node:", n); }); }); const csv=Papa.unparse({fields:h,data:r}); triggerCsvDownload(csv, `session_log_${(currentConfig?.name||'unsaved').replace(/[^a-z0-9]/gi,'_')}`); }
-async function downloadAllLogs() { /* ... (Download all logs CSV - unchanged) ... */ if (!currentConfig || !currentConfig.id || currentConfig.id === "unknown" || currentConfig.id === "default-config-001") { alert("Load saved config."); return; } setStatusMessage('predict-status', "Downloading logs...", "loading"); showSpinner(true); enableUI(false); await retryFetch(async () => { const r = await fetch(`/api/download_log/${currentConfig.id}`); if (!r.ok) { if (r.status === 404) throw new Error(`No logs found for '${currentConfig.name}'.`); const e = await r.json().catch(()=>({detail:`HTTP ${r.status}`})); throw new Error(e.detail); } const b = await r.blob(); triggerCsvDownload(b, `all_logs_${currentConfig.name.replace(/[^a-z0-9]/gi,'_')}`); setStatusMessage('predict-status', "Logs downloaded.", "success"); }, 3, () => setStatusMessage('predict-status', "Download failed. Retrying...", "error")).catch(e=>{setStatusMessage('predict-status',`Log download failed: ${e.message}`,"error");}).finally(() => { enableUI(true); showSpinner(false); }); }
-function triggerCsvDownload(csvDataOrBlob, baseFilename) { /* ... (Trigger browser download - unchanged) ... */ const blob = (csvDataOrBlob instanceof Blob) ? csvDataOrBlob : new Blob([csvDataOrBlob], { type: 'text/csv;charset=utf-8;' }); const link = document.createElement("a"); const url = URL.createObjectURL(blob); link.setAttribute("href", url); const timestampStr = new Date().toISOString().replace(/[:.]/g, '-'); link.setAttribute("download", `${baseFilename}_${timestampStr}.csv`); link.style.visibility = 'hidden'; document.body.appendChild(link); link.click(); document.body.removeChild(link); URL.revokeObjectURL(url); }
 
 console.log("script.js loaded and executed.");
