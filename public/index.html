@@ -1,13 +1,12 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Editable LLM Bayesian Network</title> <!-- Updated Title -->
+    <!-- ... meta, title, css ... -->
     <link rel="stylesheet" href="style.css">
 
     <!-- Core Libs -->
-    <script src="https://unpkg.com/cytoscape@3.23.0/dist/cytoscape.min.js"></script> <!-- Match JS version -->
+    <!-- Use standard minified build -->
+    <script src="https://unpkg.com/cytoscape@3.23.0/dist/cytoscape.min.js"></script>
     <script src="https://unpkg.com/papaparse@5.3.2/papaparse.min.js"></script>
 
     <!-- Layout Libs -->
@@ -15,23 +14,16 @@
     <script src="https://unpkg.com/cytoscape-cola@2.5.1/cytoscape-cola.js"></script>
     <script src="https://unpkg.com/cytoscape-dagre@2.5.0/cytoscape-dagre.js"></script>
 
-    <!-- === ADDED/REQUIRED GRAPH EDITING LIBRARIES === -->
-    <!-- Dependencies for context-menus -->
+    <!-- Graph Editing Libraries -->
     <script src="https://unpkg.com/@popperjs/core@2"></script>
     <script src="https://unpkg.com/tippy.js@6"></script>
-    <!-- Context Menus Lib (ensure version compatible with tippy 6) -->
     <script src="https://unpkg.com/cytoscape-context-menus@4.1.0/cytoscape-context-menus.js"></script>
-    <!-- Edge Handles Lib -->
-    <script src="https://unpkg.com/cytoscape-edgehandles@4.0.1/cytoscape-edgehandles.js"></script>
-    <!-- === END OF EDITING LIBRARIES === -->
+    <!-- CHANGE EDGE HANDLES VERSION -->
+    <script src="https://unpkg.com/cytoscape-edgehandles@3.6.0/cytoscape-edgehandles.js"></script>
 
     <script>
-        // We will perform robust checks and registration *inside* script.js
-        // during the initialization phases, rather than trying here globally.
-        // This avoids potential race conditions.
         console.log("HTML: Editing library scripts loaded.");
     </script>
-
 </head>
 <body>
     <div class="container">
