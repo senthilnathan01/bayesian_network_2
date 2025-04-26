@@ -5,7 +5,6 @@
     <link rel="stylesheet" href="style.css">
 
     <!-- Core Libs -->
-    <!-- Use standard minified build -->
     <script src="https://unpkg.com/cytoscape@3.23.0/dist/cytoscape.min.js"></script>
     <script src="https://unpkg.com/papaparse@5.3.2/papaparse.min.js"></script>
 
@@ -18,31 +17,25 @@
     <script src="https://unpkg.com/@popperjs/core@2"></script>
     <script src="https://unpkg.com/tippy.js@6"></script>
     <script src="https://unpkg.com/cytoscape-context-menus@4.1.0/cytoscape-context-menus.js"></script>
-    <!-- CHANGE EDGE HANDLES VERSION -->
-    <script src="https://unpkg.com/cytoscape-edgehandles@3.6.0/cytoscape-edgehandles.js"></script>
+    <!-- REMOVE OR COMMENT OUT EDGE HANDLES SCRIPT -->
+    <!-- <script src="https://unpkg.com/cytoscape-edgehandles@3.6.0/cytoscape-edgehandles.js"></script> -->
 
     <script>
-        console.log("HTML: Editing library scripts loaded.");
+        console.log("HTML: Editing library scripts loaded (excluding edgehandles).");
     </script>
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>Dynamic LLM Bayesian Network</h1>
-        </header>
-        <main>
-            <div class="graph-editor"> <!-- Use this section for graph -->
-                <h2>Graph Editor / Viewer</h2>
-                <!-- UPDATED INSTRUCTIONS AGAIN -->
-                <p>
-                    <b>Right-click canvas:</b> Add Input/Hidden node. <br>
-                    <b>Right-click node:</b> Convert type, Delete node.<br>
-                    <b>Right-click edge:</b> Delete edge.<br>
-                    <b>Draw Edge:</b> Hover over a node, then drag the handle (blue circle) to another node.
-                </p>
-                <div id="cy"></div> <!-- Cytoscape container -->
-            </div>
-
+    <!-- ... body content ... -->
+     <!-- Update Instructions -->
+     <div class="graph-editor">
+        <h2>Graph Editor / Viewer</h2>
+        <p> <!-- UPDATED INSTRUCTIONS -->
+            <b>Right-click canvas:</b> Add Input/Hidden node.<br>
+            <b>Right-click node:</b> Convert type, Delete, Start edge (then left-click target).<br>
+            <b>Right-click edge:</b> Delete edge.
+        </p>
+        <div id="cy"></div>
+    </div>
             <!-- Configuration Section -->
             <div class="config-section">
                 <h2>Configuration</h2>
