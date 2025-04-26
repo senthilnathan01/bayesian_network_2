@@ -135,31 +135,40 @@ function initializeEditingExtensions() {
 
 // --- New Editing Functions ---
 
+// Add a global counter near the top
+let newNodeCounter = 0;
+
+// Modify addNodeFromMenu
 function addNodeFromMenu(nodeType, position) {
-     if (!cy) return;
-    const idBase = nodeType === 'input' ? 'InputNode' : 'HiddenNode';
-    let id = `${idBase}_${Math.floor(Math.random() * 1000)}`;
-    // Ensure unique ID
+    if (!cy) return;
+    newNodeCounter++; // Increment counter
+    const idBase = nodeType === 'input' ? 'Input' : 'Hidden';
+    let id = `${idBase}_${newNodeCounter}`;
+    // Ensure unique ID (less likely needed with counter, but good practice)
     while (cy.getElementById(id).length > 0) {
-        id = `${idBase}_${Math.floor(Math.random() * 1000)}`;
+        newNodeCounter++;
+        id = `${idBase}_${newNodeCounter}`;
     }
 
-    const name = prompt(`Enter display name for new ${nodeType} node (ID: ${id}):`, `My ${nodeType.charAt(0).toUpperCase() + nodeType.slice(1)} Node`);
+    // Prompt for the DISPLAY NAME, using the ID as a suggestion
+    const name = prompt(`Enter display name for new ${nodeType} node (ID: ${id}):`, id); // Use ID as default name
     if (name === null) return; // User cancelled
 
     const newNodeData = {
         group: 'nodes',
-        data: { id: id.trim(), fullName: name.trim() || id.trim(), nodeType: nodeType },
-        position: position // Use click position
+        data: {
+            id: id.trim(), // Use generated ID
+            fullName: name.trim() || id.trim(), // Use entered name or fallback to ID
+            nodeType: nodeType
+        },
+        position: position
     };
 
     cy.add(newNodeData);
-    console.log(`Added ${nodeType} node:`, newNodeData.data.id);
-    if (nodeType === 'input') {
-        updateInputControls(cy.nodes().map(n => n.data())); // Refresh inputs if an input node was added
-    }
-    updateNodeProbabilities({}); // Update appearance
-    runLayout(); // Adjust layout
+    console.log(`Added ${nodeType} node: ID=${id}, Name=${newNodeData.data.fullName}`);
+    if (nodeType === 'input') { updateInputControls(cy.nodes().map(n => n.data())); }
+    updateNodeProbabilities({});
+    runLayout();
     markConfigUnsaved();
 }
 
