@@ -9,20 +9,45 @@ let edgeHandlesInstance = null; // Reference to edge handles extension API
 let contextMenuInstance = null; // Reference to context menus extension API
 let newNodeCounter = 0; // Counter for generating unique default node IDs
 
+// --- DEFINE HELPER FUNCTIONS FIRST ---
+function nodeLabelFunc(node) {
+    const id = node.data('id');
+    const fullName = node.data('fullName') || id;
+    const currentLabel = node.data('currentProbLabel');
+    return `${id}: ${fullName}\n${currentLabel || '(N/A)'}`;
+}
+
 // --- Initialization ---
 document.addEventListener('DOMContentLoaded', async () => {
-    // 1. Initialize Cytoscape Instance
-    initializeCytoscape();
+    console.log("DOM Content Loaded. Starting initialization...");
 
-    // Check if cy was initialized before proceeding
+    // Check for libraries needed for core functionality
+    if (typeof cytoscape !== 'function') {
+        alert("Error: Cytoscape library is not loaded. Check script tags and network errors.");
+        setStatusMessage('config-status', "Error: Core graph library failed to load.", "error");
+        showSpinner(false);
+        return;
+    }
+    if (!document.getElementById('cy')) {
+        alert("Error: Cannot find graph container id='cy'. Check index.html.");
+        setStatusMessage('config-status', "Error: Graph container missing.", "error");
+        showSpinner(false);
+        return;
+    }
+
+    // 1. Initialize Cytoscape Instance
+    initializeCytoscape(); // Creates 'cy' instance, uses nodeLabelFunc
+
+    // Check if cy initialization succeeded
     if (cy) {
          // 2. Initialize Editing Extensions (Context Menus, Edge Handles)
+         // This will ALSO register them using cytoscape.use()
          initializeEditingExtensions();
     } else {
+        // Alert already shown inside initializeCytoscape's catch block
         console.error("Cytoscape core failed to initialize. Cannot proceed.");
-        setStatusMessage('config-status', "Error: Graph library failed to load.", "error");
-        showSpinner(false); // Hide spinner if init fails early
-        return; // Stop initialization if core fails
+        showSpinner(false);
+        return;
     }
 
     // 3. Initialize UI Button Listeners etc.
@@ -32,170 +57,109 @@ document.addEventListener('DOMContentLoaded', async () => {
     setStatusMessage('config-status', "Loading default graph...", "loading");
     showSpinner(true);
     try {
-        await loadDefaultConfig(); // Fetch default structure into global var
+        await loadDefaultConfig();
         if (defaultGraphStructure) {
-            loadGraphData(defaultGraphStructure, true); // Load default into cy
-            addDefaultToDropdown(); // Add option to select
-            selectConfigInDropdown(defaultGraphStructure.id); // Select it by default
+            loadGraphData(defaultGraphStructure, true);
+            addDefaultToDropdown();
+            selectConfigInDropdown(defaultGraphStructure.id);
             setStatusMessage('config-status', "Default config loaded.", "success");
-        } else {
-             // Handle case where default couldn't be fetched
-             setStatusMessage('config-status', "Could not load default config. Select or save a configuration.", "error");
-             updateInputControls([]);
-             document.getElementById('current-config-name').textContent = "None";
-        }
-    } catch (error) {
-        console.error("Error loading default config:", error);
-        setStatusMessage('config-status', `Failed to load default config: ${error.message}. Check server status.`, "error");
-        updateInputControls([]);
-        document.getElementById('current-config-name').textContent = "None";
-    }
+        } else { /* ... error handling ... */ throw new Error("Default config data unavailable."); }
+    } catch (error) { /* ... error handling ... */ console.error("Init default error:", error); setStatusMessage('config-status', `Default load failed: ${error.message}`, "error"); updateInputControls([]); document.getElementById('current-config-name').textContent = "None"; }
 
     setStatusMessage('config-status', "Loading saved configurations...", "loading");
     try {
-        await loadConfigList(); // Fetch saved configs and add to dropdown
-        // Update final status message after both load attempts
-        const finalStatus = currentConfig ? `Config '${currentConfig.name}' loaded.` : "Ready. Select or save a config.";
-        // Check if status wasn't already set to an error by default load
-        if (!document.getElementById('config-status').classList.contains('error')) {
-             setStatusMessage('config-status', finalStatus, "success");
-        }
-    } catch (error) {
-        console.error("Error loading saved configs:", error);
-        // Don't overwrite previous error message if default load failed
-        if (!document.getElementById('config-status').classList.contains('error')) {
-            setStatusMessage('config-status', `Failed to load saved configs: ${error.message}. Check server status.`, "error");
-        }
-    } finally {
-        showSpinner(false); // Hide spinner after all initial loading
-    }
+        await loadConfigList();
+        const finalStatus = currentConfig ? `Config '${currentConfig.name}' loaded.` : "Ready.";
+        if (!document.getElementById('config-status').classList.contains('error')) { setStatusMessage('config-status', finalStatus, "success"); }
+    } catch (error) { /* ... error handling ... */ console.error("Init saved list error:", error); if (!document.getElementById('config-status').classList.contains('error')) { setStatusMessage('config-status', `Failed list load: ${error.message}`, "error"); } }
+    finally { showSpinner(false); }
 });
 
 // --- Cytoscape Core Initialization ---
 function initializeCytoscape() {
-    if (cy) { console.warn("Cytoscape already initialized."); return; }
-    console.log("Initializing Cytoscape core...");
+    // ... (Uses nodeLabelFunc defined above) ...
+     if (cy) { console.warn("Cytoscape already initialized."); return; }
+    console.log("Attempting to initialize Cytoscape core...");
     try {
         cy = cytoscape({
             container: document.getElementById('cy'),
-            elements: [], // Start empty
-            style: [ // Define node/edge appearance
+            elements: [],
+            style: [ // Now nodeLabelFunc is defined
                 { selector: 'node', style: { 'background-color': '#ccc', 'label': nodeLabelFunc, 'width': 120, 'height': 120, 'shape': 'ellipse', 'text-valign': 'center', 'text-halign': 'center', 'font-size': '10px', 'font-weight': '100', 'text-wrap': 'wrap', 'text-max-width': 110, 'text-outline-color': '#fff', 'text-outline-width': 1, 'color': '#333', 'transition-property': 'background-color, color', 'transition-duration': '0.5s' } },
                 { selector: 'node[nodeType="input"]', style: { 'shape': 'rectangle', 'width': 130, 'height': 70 } },
                 { selector: 'node[nodeType="hidden"]', style: { 'shape': 'ellipse' } },
                 { selector: 'edge', style: { 'width': 2, 'line-color': '#666', 'target-arrow-shape': 'triangle', 'target-arrow-color': '#666', 'curve-style': 'bezier' } },
-                // Style for indicating edge source node (used by removed logic, can keep or remove)
                 { selector: '.edge-source-active', style: { 'border-width': 3, 'border-color': '#00ff00' } },
-                 // Style for nodes being grabbed by edge handles
-                 { selector: '.eh-grabbed', style: { 'border-width': 3, 'border-color': '#007bff' } }
+                { selector: '.eh-grabbed', style: { 'border-width': 3, 'border-color': '#007bff' } }
             ],
-             // Default layout, run explicitly later
-             layout: { name: 'preset' } // Start with preset layout initially
+            layout: { name: 'preset' }
         });
         console.log("Cytoscape core initialized successfully.");
     } catch(error) {
         console.error("Failed to initialize Cytoscape Core:", error);
-        cy = null; // Ensure cy is null if init fails
-        alert("Critical Error: Failed to initialize the graph visualization library. Please refresh the page.");
+        alert(`Critical Error: Failed to initialize the graph visualization library.\n\nError: ${error.message}\n\nPlease check the browser console for details and refresh the page.`);
+        cy = null;
     }
 }
 
-// --- Editing Extensions Initialization ---
+// --- Editing Extensions Initialization & REGISTRATION ---
 function initializeEditingExtensions() {
-    console.log("Initializing editing extensions...");
+    console.log("Initializing and Registering editing extensions...");
     if (!cy) { console.error("Cannot init extensions: Cytoscape not ready."); return; }
 
-    // --- Initialize Edge Handles (Primary edge drawing method) ---
+    let edgeHandlesRegistered = false;
+    let contextMenusRegistered = false;
+
+    // --- Register & Initialize Edge Handles ---
     try {
-        if (typeof cy.edgehandles === 'function') {
-            edgeHandlesInstance = cy.edgehandles({
-                snap: true, // Snap to nodes for easier connection
-                handleNodes: 'node', // Show handle on all nodes
-                handleSize: 10, // Size of the handle
-                handleColor: '#007bff', // Color of the handle
-                handlePosition: 'middle top', // Where the handle appears
-                preview: true, // Show a preview line while dragging
-                hoverDelay: 150, // Delay before handle appears on hover
-                edgeType: (sourceNode, targetNode) => 'flat', // Type of edge (usually flat)
-                loopAllowed: (node) => false, // Prevent self-loops
-                nodeLoopOffset: -50, // Offset for loop edges if allowed
-                nodeParams: (sourceNode, targetNode) => ({}), // Extra parameters for nodes (unused here)
-                edgeParams: (sourceNode, targetNode, i) => ({ // Data for the new edge
-                     data: { source: sourceNode.id(), target: targetNode.id() }
-                 }),
-                 ghostEdgeParams: () => ({}), // Params for the ghost edge during preview
-                 // CSS classes for styling edge handles states
-                 handleClass: 'eh-handle',
-                 hoverClass: 'eh-hover',
-                 snapClass: 'eh-snap',
-                 sourceNodeClass: 'eh-source',
-                 targetNodeClass: 'eh-target',
-                 ghostEdgeClass: 'eh-ghost-edge',
-                 previewClass: 'eh-preview',
-                 grabbedNodeClass: 'eh-grabbed', // Class added to node when handle is grabbed
+        // Check if library is loaded AND core cytoscape is available
+        if (typeof cytoscapeEdgehandles === 'function' && typeof cytoscape === 'function') {
+             cytoscape.use( cytoscapeEdgehandles ); // REGISTER the extension
+             console.log("Edgehandles registered.");
+            edgeHandlesInstance = cy.edgehandles({ /* ... edgehandles options ... */
+                 snap: true, handleNodes: 'node', handleSize: 10, handleColor: '#007bff', handlePosition: 'middle top', preview: true, hoverDelay: 150,
+                 edgeType: (src, tgt) => 'flat', loopAllowed: (n) => false, nodeLoopOffset: -50,
+                 nodeParams: (src, tgt) => ({}), edgeParams: (src, tgt, i) => ({ data: { source: src.id(), target: tgt.id() } }), ghostEdgeParams: () => ({}),
+                 handleClass: 'eh-handle', hoverClass: 'eh-hover', snapClass: 'eh-snap', sourceNodeClass: 'eh-source', targetNodeClass: 'eh-target', ghostEdgeClass: 'eh-ghost-edge', previewClass: 'eh-preview', grabbedNodeClass: 'eh-grabbed',
+                 complete: ( src, tgt, added ) => { console.log("Edge added via handles:", added); const g = { nodes: cy.nodes().map(n=>n.data()), edges: cy.edges().map(e=>({source:e.source().id(), target:e.target().id()})) }; if (!simulateIsDag(g)) { alert(`Cycle detected! Removing edge ${src.id()}->${tgt.id()}`); cy.remove(added); setStatusMessage('config-status', `Edge aborted (cycle).`, "error"); } else { markConfigUnsaved(); setStatusMessage('config-status', `Edge ${src.id()}->${tgt.id()} added.`, "success"); /* runLayout(); optional */ } }
+             });
+            console.log("Edgehandles initialized instance.");
+            edgeHandlesRegistered = true; // Mark as successful
+        } else { console.warn("cytoscape-edgehandles lib not found for registration."); }
+    } catch (e) { console.error("Error initializing/registering Edgehandles:", e); }
 
-                // --- IMPORTANT: complete callback ---
-                complete: ( sourceNode, targetNode, addedEntities ) => {
-                    console.log("Edge added via handles:", addedEntities);
-                    // Validate for cycles *after* the edge has been added by the extension
-                    const currentEdges = cy.edges().map(e => ({ source: e.source().id(), target: e.target().id() }));
-                    const currentGraph = { nodes: cy.nodes().map(n => n.data()), edges: currentEdges };
-                    const isOk = simulateIsDag(currentGraph);
-
-                    if (!isOk) {
-                        alert(`Cannot add edge ${sourceNode.id()} -> ${targetNode.id()}. This would create a cycle.`);
-                        // Remove the invalid edge
-                        if (addedEntities) {
-                             cy.remove(addedEntities);
-                             console.log("Removed edge due to cycle creation.");
-                        }
-                        setStatusMessage('config-status', `Edge aborted (creates cycle).`, "error");
-                    } else {
-                         // Edge is valid and already added by the extension
-                         // No need to call cy.add() again
-                         markConfigUnsaved(); // Mark as unsaved
-                         setStatusMessage('config-status', `Edge ${sourceNode.id()} -> ${targetNode.id()} added.`, "success");
-                         // Optional: Re-run layout gently after adding edge
-                         // runLayout(); // Can cause jumping, maybe only run layout before save?
-                    }
-                }
-            });
-            console.log("Edgehandles initialized.");
-        } else {
-             console.warn("cytoscape-edgehandles not available or not registered. Edge drawing disabled.");
-             // Update placeholder text
-             const editorPlaceholder = document.querySelector('.graph-editor p');
-             if (editorPlaceholder) editorPlaceholder.textContent += " Edge drawing unavailable.";
-        }
-    } catch (e) { console.error("Error initializing Edgehandles:", e); }
-
-    // --- Initialize Context Menus ---
+    // --- Register & Initialize Context Menus ---
     try {
-        // Ensure dependencies are loaded
-        if (typeof cy.contextMenus === 'function' && typeof tippy === 'function') {
-            contextMenuInstance = cy.contextMenus({
-                // Menu Items Definition
-                menuItems: [
-                    // Canvas Right Click
-                    { id: 'add-input-core', title: 'Add Input Node Here', selector: '', coreAsWell: true, onClickFunction: (evt) => addNodeFromMenu('input', evt.position || evt.cyPosition) },
-                    { id: 'add-hidden-core', title: 'Add Hidden Node Here', selector: '', coreAsWell: true, onClickFunction: (evt) => addNodeFromMenu('hidden', evt.position || evt.cyPosition), hasTrailingDivider: true },
-                    // Node Right Click
-                    { id: 'convert-type', title: 'Convert Type', selector: 'node', onClickFunction: (evt) => convertNodeType(evt.target || evt.cyTarget) },
-                    { id: 'delete-node', title: 'Delete Node', selector: 'node', hasTrailingDivider: true, onClickFunction: (evt) => deleteElement(evt.target || evt.cyTarget) },
-                    // Edge Right Click
-                    { id: 'delete-edge', title: 'Delete Edge', selector: 'edge', onClickFunction: (evt) => deleteElement(evt.target || evt.cyTarget) }
-                ],
-                // CSS Classes for styling
-                menuItemClasses: [ 'ctx-menu-item' ],
-                contextMenuClasses: [ 'ctx-menu' ]
-            });
-            console.log("Context Menus initialized.");
-        } else {
-            console.warn("cytoscape-context-menus or dependencies not available or not registered. Right-click menus disabled.");
-            const editorPlaceholder = document.querySelector('.graph-editor p');
-             if (editorPlaceholder) editorPlaceholder.textContent = "Right-click editing unavailable: Menu library failed to load.";
-        }
-    } catch (e) { console.error("Error initializing Context Menus:", e); }
+        // Check if library AND dependencies are loaded
+        if (typeof cytoscapeContextMenus === 'function' && typeof tippy === 'function' && typeof Popper === 'object' && typeof cytoscape === 'function') {
+             cytoscape.use( cytoscapeContextMenus ); // REGISTER the extension
+             console.log("Context Menus registered.");
+            contextMenuInstance = cy.contextMenus({ /* ... context menu options ... */
+                 menuItems: [
+                     { id: 'add-input-core', title: 'Add Input Node Here', selector: '', coreAsWell: true, onClickFunction: (evt) => addNodeFromMenu('input', evt.position || evt.cyPosition) },
+                     { id: 'add-hidden-core', title: 'Add Hidden Node Here', selector: '', coreAsWell: true, onClickFunction: (evt) => addNodeFromMenu('hidden', evt.position || evt.cyPosition), hasTrailingDivider: true },
+                     { id: 'convert-type', title: 'Convert Type', selector: 'node', onClickFunction: (evt) => convertNodeType(evt.target || evt.cyTarget) },
+                     { id: 'delete-node', title: 'Delete Node', selector: 'node', hasTrailingDivider: true, onClickFunction: (evt) => deleteElement(evt.target || evt.cyTarget) },
+                     { id: 'delete-edge', title: 'Delete Edge', selector: 'edge', onClickFunction: (evt) => deleteElement(evt.target || evt.cyTarget) }
+                 ],
+                 menuItemClasses: [ 'ctx-menu-item' ], contextMenuClasses: [ 'ctx-menu' ]
+             });
+            console.log("Context Menus initialized instance.");
+            contextMenusRegistered = true; // Mark as successful
+        } else { console.warn("cytoscape-context-menus lib or dependencies (Tippy/Popper) not found for registration."); }
+    } catch (e) { console.error("Error initializing/registering Context Menus:", e); }
+
+     // Update placeholder text based on registration success
+     const editorPlaceholder = document.querySelector('.graph-editor p');
+     if (editorPlaceholder) {
+         let message = "";
+         if (!contextMenusRegistered && !edgeHandlesRegistered) message = "Editing unavailable: Failed to load necessary libraries.";
+         else if (!contextMenusRegistered) message = "Right-click editing disabled. Drag node handles to add edges.";
+         else if (!edgeHandlesRegistered) message = "Edge drawing disabled. Use right-click menus to edit.";
+         else message = "Right-click nodes/canvas to edit. Drag node handles to add edges."; // All good
+          editorPlaceholder.textContent = message;
+          if (!contextMenusRegistered || !edgeHandlesRegistered) editorPlaceholder.style.color = 'orange';
+     }
 }
 
 // --- UI Initialization ---
