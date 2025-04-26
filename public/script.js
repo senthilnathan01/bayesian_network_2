@@ -1,29 +1,3 @@
-// public/script.js
-
-// --- Global Variables ---
-let cy; // Cytoscape instance
-let currentConfig = null; // Represents the currently loaded/active config object { id, name, graph_structure }
-let defaultGraphStructure = null; // To store the structure fetched from backend
-let sessionLog = []; // Logs for the current browser session
-let edgeHandlesInstance = null; // Reference to edge handles extension API
-let contextMenuInstance = null; // Reference to context menus extension API
-let newNodeCounter = 0; // Counter for generating unique default node IDs
-// Flags to track successful registration
-let didRegisterEdgehandles = false;
-let didRegisterContextMenus = false;
-
-// ===========================================
-// --- ALL HELPER FUNCTION DEFINITIONS ---
-// ===========================================
-// Define functions BEFORE they are called by DOMContentLoaded or other functions
-
-function nodeLabelFunc(node) {
-    const id = node.data('id');
-    const fullName = node.data('fullName') || id;
-    const currentLabelProvide Complete Code)**
-
-Here is the complete code for `script.js`, including all functions defined previously and ensuring no truncation.
-
 --- START OF FILE public/script.js ---
 ```javascript
 // public/script.js
