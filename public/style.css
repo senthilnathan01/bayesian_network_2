@@ -57,8 +57,8 @@ button:disabled { background-color: #cccccc; cursor: not-allowed; }
     display: flex; flex-direction: column;
     overflow: hidden; /* Crucial: Prevent this container from growing beyond grid area */
 }
-.graph-editor h2 { flex-shrink: 0; }
-.graph-editor p { flex-shrink: 0; color: #555; font-size: 0.9em; text-align: center; margin-bottom: 10px;}
+/* .graph-editor h2 { flex-shrink: 0; } */
+.graph-editor p { color: #555; font-size: 0.9em; text-align: center; margin-bottom: 10px;}
 /* The #cy div inside will have its fixed height */
 
 
