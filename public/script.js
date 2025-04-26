@@ -1,7 +1,3 @@
---- START OF FILE public/script.js ---
-```javascript
-// public/script.js
-
 // --- Global Variables ---
 let cy; // Cytoscape instance
 let currentConfig = null; // Represents the currently loaded/active config object { id, name, graph_structure }
