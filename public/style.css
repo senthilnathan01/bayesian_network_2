@@ -81,6 +81,18 @@ button:disabled { background-color: #cccccc; cursor: not-allowed; }
 .eh-source, .eh-target { border: 2px dashed #007bff; }
 .eh-preview, .eh-ghost-edge { line-color: #007bff; target-arrow-color: #007bff; source-arrow-color: #007bff; line-style: dashed; }
 
+/* === ADDED/REVISED: STYLE FOR ACTIVE EDGE SOURCE === */
+.edge-source-active {
+    border: 3px solid #00dd00 !important; /* Bright green border */
+    box-shadow: 0 0 8px #00dd00; /* Green glow */
+}
+
+/* Style for nodes being grabbed by edge handles (if edge handles load) */
+.eh-grabbed {
+     border: 3px solid #007bff !important;
+     box-shadow: 0 0 8px #007bff;
+}
+
 
 /* --- RESPONSIVE GRID LAYOUT --- */
 @media (min-width: 1000px) {
