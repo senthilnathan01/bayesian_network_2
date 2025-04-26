@@ -52,8 +52,40 @@ async function downloadAllLogs() { if(!currentConfig||!currentConfig.id||current
 function triggerCsvDownload(csvDataOrBlob, baseFilename) { const blob = (csvDataOrBlob instanceof Blob) ? csvDataOrBlob : new Blob([csvDataOrBlob], { type: 'text/csv;charset=utf-8;' }); const link = document.createElement("a"); const url = URL.createObjectURL(blob); link.setAttribute("href", url); const timestampStr = new Date().toISOString().replace(/[:.]/g, '-'); link.setAttribute("download", `${baseFilename}_${timestampStr}.csv`); link.style.visibility = 'hidden'; document.body.appendChild(link); link.click(); document.body.removeChild(link); URL.revokeObjectURL(url); }
 function markConfigUnsaved() { const d = document.getElementById('current-config-name'); if (d && !d.textContent.endsWith('*')) { d.textContent += '*'; setStatusMessage('config-status', "Graph modified. Save changes.", "loading"); } }
 function clearUnsavedMark() { const d = document.getElementById('current-config-name'); if (d && d.textContent.endsWith('*')) { d.textContent = d.textContent.slice(0, -1); } }
-function updateEditorPlaceholderText() { const p=document.querySelector('.graph-editor p'); if(!p)return; let m=""; const menusOk=contextMenuInstance!==null; const edgesOk=false; /* Edges via context menu now */ if(!menusOk) m="Editing unavailable: Failed libraries."; else m="Right-click nodes/canvas to edit. Start edge via menu."; p.textContent=m; p.style.color=(menusOk)?'#555':'orange'; }
+function updateEditorPlaceholderText() {
+    const p = document.querySelector('.graph-editor p');
+    if (!p) {
+        console.error("Could not find graph editor instruction paragraph element.");
+        return;
+    }
 
+    // --- Detailed Instructions ---
+    p.innerHTML = `
+        <b>Editing Actions (Right-Click):</b><br>
+           • <b>On Empty Canvas:</b> Choose 'Add Input Node' or 'Add Hidden Node'. You'll be prompted for a display name (ID is auto-generated).<br>
+           • <b>On a Node:</b>
+            <ul>
+                <li><i>Start Edge From Here:</i> Select this, then <b>left-click</b> the target node to create a connection (cycles are prevented). Click canvas to cancel.</li>
+                <li><i>Convert Type:</i> Toggles node between 'Input' (rectangle) and 'Hidden' (ellipse).</li>
+                <li><i>Delete Node:</i> Removes the node and any connected edges.</li>
+            </ul>
+           • <b>On an Edge:</b> Choose 'Delete Edge' to remove the connection.
+        <br>
+        <i>Remember to 'Save' your configuration after making changes!</i>
+    `;
+    p.style.color = '#555'; // Reset color to default
+    p.style.textAlign = 'left'; // Align text left for readability
+    p.style.fontSize = '0.85em'; // Slightly smaller font for instructions
+
+    // Optional: Still log warning if menus failed
+    const menusOk = contextMenuInstance !== null;
+    if (!menusOk) {
+        console.warn("Context Menus library failed to initialize properly. Right-click might not work as expected.");
+        // Append a visual warning if desired
+        p.innerHTML += ' <br><span style="color: orange; font-weight: bold;">Warning: Right-click menus might be disabled due to a loading error.</span>';
+    }
+     console.log("Updated editor placeholder text with detailed instructions.");
+}
 // --- Editing Functions ---
 function addNodeFromMenu(nodeType, position) { if (!cy) return; newNodeCounter++; const idBase = nodeType === 'input' ? 'Input' : 'Hidden'; let id = `${idBase}_${newNodeCounter}`; while (cy.getElementById(id).length > 0) { newNodeCounter++; id = `${idBase}_${newNodeCounter}`; } const name = prompt(`Enter display name for new ${nodeType} node (ID: ${id}):`, id); if (name === null) return; const newNodeData = { group: 'nodes', data: { id: id.trim(), fullName: name.trim() || id.trim(), nodeType: nodeType }, position: position }; cy.add(newNodeData); console.log(`Added ${nodeType} node: ID=${id}, Name=${newNodeData.data.fullName}`); if (nodeType === 'input') { updateInputControls(cy.nodes().map(n => n.data())); } updateNodeProbabilities({}); runLayout(); markConfigUnsaved(); }
 function deleteElement(target) { if (!cy || !target || (!target.isNode && !target.isEdge)) return; const id = target.id(); const type = target.isNode() ? 'node' : 'edge'; let name = target.data('fullName') || id; if (target.isEdge()){ name = `${target.source().id()}->${target.target().id()}`; } if (confirm(`Delete ${type} "${name}"?`)) { const wasInputNode = target.isNode() && target.data('nodeType') === 'input'; cy.remove(target); console.log(`Removed ${type}: ${id}`); if(wasInputNode){ updateInputControls(cy.nodes().map(n => n.data())); } markConfigUnsaved(); } }
