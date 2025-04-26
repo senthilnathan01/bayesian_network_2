@@ -31,19 +31,78 @@ function simulateIsDag(graph) {
 }
 
 // Client-side cycle check helper (DFS based)
+// Client-side cycle check helper (DFS based) - CORRECTED
 function simulateIsDag(graph) {
-    if (!graph || !graph.nodes || !graph.edges) { console.warn("simulateIsDag: Invalid graph structure."); return false; }
-    const adj = {}; const nodesSet = new Set();
-    graph.nodes.forEach(n => { if (n && n.id) { adj[n.id] = []; nodesSet.add(n.id); } else { console.warn("simulateIsDag: Skipping invalid node object during init:", n); } });
-    graph.edges.forEach(e => { if (e && e.); } });
-    graph.edges.forEach(e => { if (e && e.source && e.source && e.target && nodesSet.has(e.source) && nodesSet.has(e.targettarget && nodesSet.has(e.source) && nodesSet.has(e.target)) { if ()) { if (e.source in adj) { adj[e.source].push(e.target); }e.source in adj) { adj[e.source].push(e.target); } else { adj[ else { adj[e.source] = [e.target]; console.warn(`simulateIsDag: Source ${e.source] = [e.target]; console.warn(`simulateIsDag: Source ${e.source}e.source} init`); } } else { console.warn(`simulateIsDag: Invalid edge:`, e); } init`); } } else { console.warn(`simulateIsDag: Invalid edge:`, e); } });
-    const });
-    const path = new Set(); const visited = new Set();
-    function dfs(node) { path path = new Set(); const visited = new Set();
-    function dfs(node) { path.add(node.add(node); visited.add(node); for (const neighbor of adj[node] || []) { if); visited.add(node); for (const neighbor of adj[node] || []) { if (!nodesSet. (!nodesSet.has(neighbor)) continue; if (path.has(neighbor)) { console.log(`Cyclehas(neighbor)) continue; if (path.has(neighbor)) { console.log(`Cycle detected: ${neighbor} in ${: ${neighbor} in ${Array.from(path).join('->')}`); return false; } if (!visitedArray.from(path).join('->')}`); return false; } if (!visited.has(neighbor)) {.has(neighbor)) { if (!dfs(neighbor)) return false; } } path.delete(node); return if (!dfs(neighbor)) return false; } } path.delete(node); return true; }
-    for true; }
-    for (const node of nodesSet) { if (!visited.has(node)) { if (const node of nodesSet) { if (!visited.has(node)) { if (!dfs(node)) return (!dfs(node)) return false; } }
-    return true;
+    if (!graph || !graph.nodes || !graph.edges) {
+        console.warn("simulateIsDag: Invalid graph structure provided.");
+        return false; // Cannot determine if it's a DAG
+    }
+    const adj = {};
+    const nodesSet = new Set();
+
+    // 1. Initialize adjacency list and node set correctly
+    graph.nodes.forEach(n => {
+        if (n && n.id) { // Basic check for valid node object
+            adj[n.id] = []; // Initialize entry for this node ID in the adjacency list
+            nodesSet.add(n.id); // Add the node ID to the set of all known nodes
+        } else {
+             console.warn("simulateIsDag: Skipping invalid node object during init:", n);
+        }
+    });
+
+    // 2. Populate adjacency list from edges, ensuring source and target exist
+    graph.edges.forEach(e => {
+         if (e && e.source && e.target && nodesSet.has(e.source) && nodesSet.has(e.target)) {
+            // Check if source node exists in the adjacency list (it should from step 1)
+            if (e.source in adj) {
+                adj[e.source].push(e.target); // Add target as a neighbor of source
+            } else {
+                 // This case should ideally not happen if all nodes are valid, but good to log
+                 console.warn(`simulateIsDag: Source node ${e.source} not found in adj list during edge processing.`);
+                 // If needed, initialize: adj[e.source] = [e.target];
+            }
+        } else {
+            console.warn(`simulateIsDag: Skipping edge with missing/invalid node or edge object:`, e);
+        }
+    });
+
+    const path = new Set();    // Nodes currently in the recursion path
+    const visited = new Set(); // All nodes visited so far in DFS
+
+    function dfs(node) {
+        path.add(node);
+        visited.add(node);
+
+        // Iterate over neighbors from the adjacency list
+        for (const neighbor of adj[node] || []) {
+             // Ensure the neighbor node actually exists in our set (handles potential dangling edges if validation isn't perfect)
+            if (!nodesSet.has(neighbor)) {
+                 console.warn(`simulateIsDag DFS: Neighbor ${neighbor} of node ${node} not found in nodesSet.`);
+                 continue;
+             }
+            if (path.has(neighbor)) { // Found a node already in the current path -> Cycle!
+                console.log(`Cycle detected: ${neighbor} is already in path ${Array.from(path).join('->')}`);
+                return false;
+            }
+            if (!visited.has(neighbor)) {
+                if (!dfs(neighbor)) { // Recurse, if downstream finds a cycle, return false
+                    return false;
+                }
+            }
+        }
+        path.delete(node); // Backtrack: remove node from current path
+        return true;       // No cycle found starting from this node in this path
+    }
+
+    // 3. Check all nodes to handle disconnected graphs
+    for (const node of nodesSet) {
+        if (!visited.has(node)) {
+            if (!dfs(node)) {
+                return false; // Cycle found
+            }
+        }
+    }
+    return true; // No cycles found in any component
 }
 
 // --- Utility Functions ---
