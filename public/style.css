@@ -1,18 +1,21 @@
 /* public/style.css */
 body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; margin: 0; padding: 20px; background-color: #f4f4f4; }
-h1, h2, h3 { color: #333; text-align: center; }
+h1, h2, h3 { color: #333; text-align: center; margin-bottom: 0.5em; margin-top: 0.8em;}
+h1 { margin-bottom: 1em; }
 
 /* --- Layout Container --- */
-.container { width: 95%; max-width: 1200px; }
+.container { width: 95%; max-width: 1300px; /* Slightly wider max-width */ }
 main { display: grid; grid-template-columns: 1fr; /* Default single column */ gap: 20px; }
 
 /* --- Section Styling --- */
 .graph-editor, .config-section, .input-section, .output-section, .log-section {
     padding: 15px; border: 1px solid #ccc; border-radius: 8px; background-color: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    /* Add overflow hidden by default to prevent content spill */
+    overflow: hidden;
 }
 
 /* --- Form Element Styling --- */
-label { display: inline-block; margin-bottom: 5px; font-weight: bold; color: #555; min-width: 100px; vertical-align: middle; }
+label { display: inline-block; margin-bottom: 5px; font-weight: bold; color: #555; min-width: 100px; vertical-align: middle; font-size: 0.9em; }
 input[type=text], input[type=number], select { padding: 8px; border: 1px solid #ccc; border-radius: 4px; margin-right: 5px; margin-bottom: 8px; vertical-align: middle; font-size: 14px; }
 input[type=number] { width: 70px; }
 button { padding: 8px 12px; background-color: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 14px; transition: background-color 0.2s ease; margin-right: 5px; margin-top: 5px; vertical-align: middle; }
@@ -20,8 +23,8 @@ button:hover { background-color: #0056b3; }
 button:disabled { background-color: #cccccc; cursor: not-allowed; }
 
 /* --- Specific Controls & Buttons --- */
-.config-controls > div, .input-section > div { margin-bottom: 10px; }
-#input-controls-container { margin-bottom: 15px; max-height: 150px; /* Max height before scroll */ overflow-y: auto; border: 1px solid #eee; padding: 10px; }
+.config-controls > div { margin-bottom: 10px; }
+#input-controls-container { margin-bottom: 10px; max-height: 180px; /* Increased slightly */ overflow-y: auto; border: 1px solid #eee; padding: 10px; }
 .input-section label { width: auto; min-width: 180px; }
 #set-default-button { background-color: #28a745; } #set-default-button:hover { background-color: #218838; }
 #delete-config-button { background-color: #dc3545; } #delete-config-button:hover { background-color: #c82333; }
@@ -41,18 +44,19 @@ button:disabled { background-color: #cccccc; cursor: not-allowed; }
 /* --- Cytoscape Container --- */
 #cy {
     width: 100%;
-    height: 550px; /* Keep fixed height - change if needed */
+    /* Let height be determined by the grid row, up to a point */
+    height: 100%;
+    min-height: 450px; /* Ensure it doesn't collapse too much */
     border: 1px solid #ccc;
     background-color: #fff;
     display: block;
-    margin: 0 auto;
 }
 
 /* --- LLM Context & Reasonings --- */
-.output-section { word-wrap: break-word; }
-.output-section h2 { margin-bottom: 15px;}
-#llm-reasoning-content { background-color: #f8f9fa; border: 1px solid #eee; padding: 15px; border-radius: 5px; margin-bottom: 15px; min-height: 100px; white-space: pre-wrap; font-size: 0.9em; max-height: 300px; overflow-y: auto;}
-.output-section details { border: 1px solid #eee; padding: 10px; border-radius: 4px; margin-top: 10px;}
+.output-section { word-wrap: break-word; display: flex; flex-direction: column;} /* Allow flex control */
+.output-section h2 { margin-bottom: 10px; flex-shrink: 0;} /* Prevent header shrinking */
+#llm-reasoning-content { background-color: #f8f9fa; border: 1px solid #eee; padding: 15px; border-radius: 5px; margin-bottom: 10px; white-space: pre-wrap; font-size: 0.9em; flex-grow: 1; /* Allow reasoning to take available space */ overflow-y: auto; min-height: 80px;} /* Scroll if needed */
+.output-section details { border: 1px solid #eee; padding: 10px; border-radius: 4px; margin-top: 10px; flex-shrink: 0;} /* Prevent details shrinking */
 .output-section summary { cursor: pointer; font-weight: bold; color: #0056b3; font-size: 0.95em; }
 .output-section h3 { margin-top: 10px; margin-bottom: 5px; color: #0056b3; font-size: 1em; }
 .output-section p, .output-section ul { margin-bottom: 5px; color: #333; white-space: pre-wrap; font-size: 0.9em; }
@@ -61,14 +65,27 @@ button:disabled { background-color: #cccccc; cursor: not-allowed; }
 /* --- Graph Editor Section --- */
 .graph-editor {
     /* This section contains the #cy div */
-    /* Add overflow: hidden as a safeguard if needed, but fixed height on #cy is primary */
-     overflow: hidden;
+    display: flex; /* Use flexbox to control internal size */
+    flex-direction: column;
+    overflow: hidden; /* Prevent its content from overflowing grid area */
 }
-.graph-editor p { color: #555; font-size: 0.9em; text-align: center; margin-bottom: 10px;}
+.graph-editor h2 { flex-shrink: 0; } /* Prevent header shrinking */
+.graph-editor p { flex-shrink: 0; color: #555; font-size: 0.9em; text-align: center; margin-bottom: 10px;}
+/* Let #cy container grow within the graph-editor flex container */
+#cy-container { /* Optional wrapper if needed, otherwise apply to #cy */
+    flex-grow: 1;
+    position: relative; /* Needed if Cytoscape uses absolute positioning internally */
+    min-height: 450px; /* Match #cy min-height */
+}
+
 
 /* --- Logging --- */
+.log-section { /* Ensure log section appears correctly */
+    margin-top: 0; /* Remove potential extra margin */
+}
 .log-section p { color: #555; font-size: 0.9em;}
 #log-count { font-weight: bold; }
+
 
 /* --- Context Menu & Edge Handles Styles --- */
 .ctx-menu { display: none; z-index: 1000; background-color: #ffffff; border: 1px solid #b0b0b0; border-radius: 4px; min-width: 160px; box-shadow: 0 3px 6px rgba(0,0,0,0.15); padding: 4px 0; }
@@ -77,60 +94,71 @@ button:disabled { background-color: #cccccc; cursor: not-allowed; }
 .ctx-menu-item[hasTrailingDivider="true"] { border-bottom: 1px solid #e0e0e0; margin-bottom: 4px; padding-bottom: 7px; }
 .tippy-box[data-theme~='light'] { background-color: #333; color: white; border-radius: 4px; padding: 5px 10px; font-size: 13px;}
 .tippy-arrow { color: #333; }
+/* Edge handle styles (if you ever re-add edge handles)
 .eh-handle { background-color: #007bff; border: 1px solid white; box-shadow: 0 0 2px rgba(0,0,0,0.5); width: 12px; height: 12px; opacity: 0.7; cursor: grab; border-radius: 50%; }
 .eh-source, .eh-target { border: 2px dashed #007bff; }
 .eh-preview, .eh-ghost-edge { line-color: #007bff; target-arrow-color: #007bff; source-arrow-color: #007bff; line-style: dashed; }
-
-/* === ADDED/REVISED: STYLE FOR ACTIVE EDGE SOURCE === */
-.edge-source-active {
-    border: 3px solid #00dd00 !important; /* Bright green border */
-    box-shadow: 0 0 8px #00dd00; /* Green glow */
-}
-
-/* Style for nodes being grabbed by edge handles (if edge handles load) */
-.eh-grabbed {
-     border: 3px solid #007bff !important;
-     box-shadow: 0 0 8px #007bff;
-}
+*/
+.edge-source-active { border: 3px solid #00dd00 !important; box-shadow: 0 0 8px #00dd00; }
 
 
 /* --- RESPONSIVE GRID LAYOUT --- */
 @media (min-width: 1000px) {
     main {
-        grid-template-columns: 2fr 1fr; /* Graph | Controls */
-        /* Explicitly define rows for the right column's content */
-        /* Let row height be determined by content up to a max */
-        grid-template-rows: auto auto auto 1fr; /* Give logs space at bottom */
+        grid-template-columns: 2fr 1fr; /* Graph (2 parts) | Controls (1 part) */
+        /* Define rows based on approximate content height needs */
+        /* Let's use fractional units (fr) to make them more flexible */
+        grid-template-rows: auto auto 1fr auto; /* Config | Inputs | Reasoning (flexible) | Logs */
+        /* Total height constraint might be needed on 'main' or body if it grows too tall */
+         max-height: calc(100vh - 100px); /* Example: limit overall height */
+         overflow: hidden; /* Prevent main from overflowing */
     }
     .graph-editor {
         grid-column: 1 / 2;
-        grid-row: 1 / 4; /* Span the top 3 rows */
-        /* Ensure graph editor itself doesn't overflow its area */
-        overflow: hidden;
-        height: auto; /* Allow grid to manage height */
+        grid-row: 1 / 4; /* Span the top 3 flexible rows */
+        /* Let flexbox handle internal height */
+         height: auto;
+         min-height: 600px; /* Ensure graph area is substantial */
+         max-height: calc(100vh - 140px); /* Prevent it exceeding viewport */
     }
-    #cy {
-        height: 550px; /* Maintain fixed graph height */
-        /* Or consider height: 100%; if .graph-editor height is reliable */
-    }
-    .config-section { grid-column: 2 / 3; grid-row: 1 / 2; }
-    .input-section { grid-column: 2 / 3; grid-row: 2 / 3; }
-    .output-section { grid-column: 2 / 3; grid-row: 3 / 4; }
-
-    /* --- ADD THIS: Constrain height and enable scrolling for control panels --- */
-    .config-section, .input-section, .output-section {
-        max-height: 200px; /* Adjust this value as needed */
-        overflow-y: auto;  /* Allow vertical scroll */
-        min-height: 100px; /* Prevent collapsing too much */
-    }
-    /* Adjust output specifically if reasoning needs more space */
-     .output-section {
-         max-height: 350px; /* Give reasoning more space */
+     /* #cy height should be relative to its container now */
+     #cy {
+         height: 100%; /* Fill the flex container space */
+         min-height: 550px; /* Ensure a minimum drawing area */
      }
 
+    .config-section {
+        grid-column: 2 / 3;
+        grid-row: 1 / 2;
+        /* Allow internal scrolling if content overflows */
+        max-height: 220px; /* Example max height */
+        overflow-y: auto;
+    }
+    .input-section {
+        grid-column: 2 / 3;
+        grid-row: 2 / 3;
+        max-height: 250px; /* Example max height */
+        overflow-y: auto;
+    }
+    .output-section {
+        grid-column: 2 / 3;
+        grid-row: 3 / 4; /* This row takes remaining space (1fr) */
+         overflow-y: hidden; /* Let internal elements scroll */
+         /* min-height needed to prevent collapse if content small*/
+         min-height: 200px;
+         display: flex; /* Use flex for internal layout */
+         flex-direction: column;
+    }
+    /* Let reasoning content grow within the output section */
+    #llm-reasoning-content {
+        flex-grow: 1;
+        overflow-y: auto; /* Scroll reasoning if needed */
+        min-height: 100px; /* Ensure minimum space */
+    }
 
     .log-section {
         grid-column: 1 / -1; /* Span full width below */
         grid-row: 4 / 5;
+        flex-shrink: 0; /* Prevent logs section shrinking */
     }
 }
