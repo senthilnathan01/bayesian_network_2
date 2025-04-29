@@ -1,20 +1,49 @@
-/* public/style.css */
-body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; margin: 0; padding: 20px; background-color: #f4f4f4; }
-h1, h2, h3 { color: #333; text-align: center; margin-bottom: 0.5em; margin-top: 0.8em;}
+/* public/style.css - Reverted to simpler single-column layout */
+
+body {
+    font-family: sans-serif;
+    display: flex; /* Use flex for centering items */
+    flex-direction: column;
+    align-items: center; /* Center sections horizontally */
+    margin: 0;
+    padding: 20px;
+    background-color: #f4f4f4;
+}
+
+h1, h2, h3 {
+    color: #333;
+    text-align: center;
+    margin-bottom: 0.5em;
+    margin-top: 0.8em;
+}
 h1 { margin-bottom: 1em; }
 
 /* --- Layout Container --- */
-.container { width: 95%; max-width: 1300px; }
-main { display: grid; grid-template-columns: 1fr; gap: 20px; }
-
-/* --- Section Styling --- */
-.graph-editor, .config-section, .input-section, .output-section, .log-section {
-    padding: 15px; border: 1px solid #ccc; border-radius: 8px; background-color: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-    overflow: hidden; /* Prevent content spill by default */
+.container {
+    width: 100%; /* Take full width allowed by body padding */
+    max-width: 1000px; /* Limit overall content width */
+    display: flex;
+    flex-direction: column;
+    align-items: center;
 }
 
-/* Form Element Styling ... (Keep as is) ... */
-label { display: inline-block; margin-bottom: 5px; font-weight: bold; color: #555; min-width: 100px; vertical-align: middle; font-size: 0.9em; }
+/* --- Section Styling (Single Column) --- */
+/* Apply consistent width and margin to all sections */
+.graph-editor, .config-section, .input-section, .output-section, .log-section {
+    padding: 15px;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    background-color: #fff;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    /* Use width relative to container, and max-width */
+    width: 95%;
+    max-width: 900px; /* Adjust max-width for sections if needed */
+    margin-bottom: 20px; /* Space between sections */
+    box-sizing: border-box; /* Include padding/border in width */
+}
+
+/* --- Form Element Styling --- */
+label { display: inline-block; margin-bottom: 5px; font-weight: bold; color: #555; min-width: 100px; vertical-align: middle; font-size: 0.9em;}
 input[type=text], input[type=number], select { padding: 8px; border: 1px solid #ccc; border-radius: 4px; margin-right: 5px; margin-bottom: 8px; vertical-align: middle; font-size: 14px; }
 input[type=number] { width: 70px; }
 button { padding: 8px 12px; background-color: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 14px; transition: background-color 0.2s ease; margin-right: 5px; margin-top: 5px; vertical-align: middle; }
@@ -26,48 +55,49 @@ button:disabled { background-color: #cccccc; cursor: not-allowed; }
 #set-default-button { background-color: #28a745; } #set-default-button:hover { background-color: #218838; }
 #delete-config-button { background-color: #dc3545; } #delete-config-button:hover { background-color: #c82333; }
 .invalid-input input { border: 2px solid red !important; }
+
+/* --- Status Messages --- */
 .status-message { margin-top: 5px; font-style: italic; min-height: 1.2em; font-size: 0.9em; }
 .status-message.success { color: green; } .status-message.error { color: red; } .status-message.loading { color: #666; }
+
+/* --- Loading Spinner --- */
 .spinner { border: 4px solid #f3f3f3; border-top: 4px solid #007bff; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; position: fixed; top: 20px; right: 20px; z-index: 1001;}
 @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 .hidden { display: none; }
 
 /* --- Cytoscape Container --- */
 #cy {
-    width: 100%;
-    height: 550px; /* Keeping fixed height for the canvas */
+    width: 100%; /* Fill the width of its container (.graph-editor) */
+    height: 550px; /* CRUCIAL: Fixed height like the old working version */
     border: 1px solid #ccc;
     background-color: #fff;
-    display: block; /* Important for height calculation */
+    display: block; /* Ensure it takes block layout space */
+    box-sizing: border-box; /* Include border in size */
 }
 
-/* LLM Context & Reasonings ... (Keep as is) ... */
-.output-section { word-wrap: break-word; display: flex; flex-direction: column;}
-.output-section h2 { margin-bottom: 10px; flex-shrink: 0;}
-#llm-reasoning-content { background-color: #f8f9fa; border: 1px solid #eee; padding: 15px; border-radius: 5px; margin-bottom: 10px; white-space: pre-wrap; font-size: 0.9em; flex-grow: 1; overflow-y: auto; min-height: 80px;}
-.output-section details { border: 1px solid #eee; padding: 10px; border-radius: 4px; margin-top: 10px; flex-shrink: 0;}
+/* --- LLM Context & Reasonings --- */
+.output-section { word-wrap: break-word; }
+.output-section h2 { margin-bottom: 10px;}
+#llm-reasoning-content { background-color: #f8f9fa; border: 1px solid #eee; padding: 15px; border-radius: 5px; margin-bottom: 10px; white-space: pre-wrap; font-size: 0.9em; /* Allow scroll if content exceeds section size */ max-height: 300px; overflow-y: auto; min-height: 80px; }
+.output-section details { border: 1px solid #eee; padding: 10px; border-radius: 4px; margin-top: 10px;}
 .output-section summary { cursor: pointer; font-weight: bold; color: #0056b3; font-size: 0.95em; }
 .output-section h3 { margin-top: 10px; margin-bottom: 5px; color: #0056b3; font-size: 1em; }
 .output-section p, .output-section ul { margin-bottom: 5px; color: #333; white-space: pre-wrap; font-size: 0.9em; }
 .output-section ul { padding-left: 20px; }
 
-
 /* --- Graph Editor Section --- */
 .graph-editor {
-    display: flex; flex-direction: column;
-    overflow: hidden; /* Crucial: Prevent this container from growing beyond grid area */
+    /* No special layout needed, just standard block */
+    /* overflow: hidden; Is okay to keep */
 }
-.graph-editor h2 { flex-shrink: 0; }
-.graph-editor p { flex-shrink: 0; color: #555; font-size: 0.9em; text-align: center; margin-bottom: 10px;}
-/* The #cy div inside will have its fixed height */
+.graph-editor p { color: #555; font-size: 0.9em; text-align: center; margin-bottom: 10px;}
 
-
-/* Logging ... (Keep as is) ... */
+/* --- Logging --- */
 .log-section { margin-top: 0; }
 .log-section p { color: #555; font-size: 0.9em;}
 #log-count { font-weight: bold; }
 
-/* Context Menu & Styles ... (Keep as is) ... */
+/* --- Context Menu Styles --- */
 .ctx-menu { display: none; z-index: 1000; background-color: #ffffff; border: 1px solid #b0b0b0; border-radius: 4px; min-width: 160px; box-shadow: 0 3px 6px rgba(0,0,0,0.15); padding: 4px 0; }
 .ctx-menu-item { display: block; padding: 6px 12px; color: #333; cursor: pointer; font-size: 14px; white-space: nowrap; }
 .ctx-menu-item:hover { background-color: #e9e9e9; }
@@ -75,79 +105,8 @@ button:disabled { background-color: #cccccc; cursor: not-allowed; }
 .tippy-box[data-theme~='light'] { background-color: #333; color: white; border-radius: 4px; padding: 5px 10px; font-size: 13px;}
 .tippy-arrow { color: #333; }
 .edge-source-active { border: 3px solid #00dd00 !important; box-shadow: 0 0 8px #00dd00; }
+.eh-grabbed { border: 3px solid #007bff !important; box-shadow: 0 0 8px #007bff; } /* Style for edge handles if re-enabled */
 
 
-/* ============================================ */
-/* --- RESPONSIVE GRID LAYOUT - REVISED AGAIN --- */
-/* ============================================ */
-@media (min-width: 1000px) {
-    main {
-        display: grid; /* Ensure grid is explicitly set here too */
-        grid-template-columns: 2fr 1fr; /* Graph | Controls */
-        /* Define explicit rows for better control */
-        /* Use max-content for initial size, but limit with max-height */
-        /* Let's define the TOTAL height available for the 3 control rows */
-        /* and distribute it somewhat */
-        /* Total height of graph editor roughly = 550px (#cy) + ~50px (h2+p) = 600px */
-        /* Let's make the right column match this */
-        grid-template-rows:
-            minmax(150px, 25%)  /* Config: Min 150px, target 25% of available */
-            minmax(180px, 30%)  /* Inputs: Min 180px, target 30% of available */
-            minmax(200px, 45%)  /* Reasoning: Min 200px, target 45% of available */
-            auto;               /* Logs */
-
-        /* Constrain the grid container's height to prevent infinite growth */
-         height: calc(100vh - 80px); /* Limit height to viewport minus header/padding */
-         max-height: 800px; /* Absolute max height if viewport is huge */
-         overflow: hidden; /* Prevent grid growing beyond its container */
-    }
-
-    .graph-editor {
-        grid-column: 1 / 2;
-        grid-row: 1 / 4; /* Span the first 3 defined rows */
-        /* IMPORTANT: Ensure it doesn't exceed its grid area */
-        overflow: hidden; /* Prevents children from pushing it larger */
-        display: flex; /* Use flex to manage internal heights */
-        flex-direction: column;
-        height: 100%; /* Try to fill the allocated grid space */
-    }
-    #cy {
-        flex-grow: 1; /* Allow cytoscape canvas to fill remaining space */
-        min-height: 400px; /* Prevent it collapsing */
-        height: auto; /* Override previous fixed height */
-        width: 100%;
-        display: block;
-    }
-
-    /* Controls on the right */
-    .config-section, .input-section, .output-section {
-        grid-column: 2 / 3;
-        overflow-y: auto; /* Allow internal scrolling if content exceeds row height */
-        display: flex; /* Use flex for internal layout too */
-        flex-direction: column;
-    }
-    .config-section { grid-row: 1 / 2; }
-    .input-section { grid-row: 2 / 3; }
-    .output-section { grid-row: 3 / 4; }
-
-
-    /* Specific content scrolling within right column sections */
-     #input-controls-container {
-         flex-shrink: 1; /* Allow shrinking */
-         overflow-y: auto;
-         /* max-height removed, rely on section's overflow */
-     }
-     #llm-reasoning-content {
-        flex-grow: 1; /* Take available space in output-section */
-        overflow-y: auto;
-        min-height: 100px; /* Min height for reasoning box */
-     }
-     .output-section details {
-         flex-shrink: 0; /* Don't shrink the details toggle */
-     }
-
-    .log-section {
-        grid-column: 1 / -1;
-        grid-row: 4 / 5;
-    }
-}
+/* --- REMOVED @media query for grid layout --- */
+/* The layout will now be single column on all screen sizes */
