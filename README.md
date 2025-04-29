@@ -1,6 +1,6 @@
 The vercel link: https://bayesian-network-2.vercel.app/
 
-![image](https://github.com/user-attachments/assets/8f1570ac-3cd5-4716-9030-427d0b402314)
-![image](https://github.com/user-attachments/assets/4a7d8af4-1a70-41fa-986f-1084e193eab5)
-![image](https://github.com/user-attachments/assets/bbda7365-5ef8-4460-85f6-19586df3cf21)
-![image](https://github.com/user-attachments/assets/99e764ac-c61e-488e-b73d-d7f607c9b9c2)
+![image](https://github.com/user-attachments/assets/8d95b9bf-ef58-42d5-ab8a-81ada3a9621a)
+![image](https://github.com/user-attachments/assets/ab1b84b2-d23c-4fef-a791-6638638720e2)
+![image](https://github.com/user-attachments/assets/25376055-9605-477f-ae10-30fc01b93141)
+
