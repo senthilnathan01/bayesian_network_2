@@ -17,81 +17,69 @@
     <script src="https://unpkg.com/@popperjs/core@2"></script>
     <script src="https://unpkg.com/tippy.js@6"></script>
     <script src="https://unpkg.com/cytoscape-context-menus@4.1.0/cytoscape-context-menus.js"></script>
-    <!-- REMOVE OR COMMENT OUT EDGE HANDLES SCRIPT -->
-    <!-- <script src="https://unpkg.com/cytoscape-edgehandles@3.6.0/cytoscape-edgehandles.js"></script> -->
+    <!-- NO EDGE HANDLES SCRIPT -->
 
     <script>
         console.log("HTML: Editing library scripts loaded (excluding edgehandles).");
     </script>
 </head>
 <body>
-    <!-- ... body content ... -->
-     <!-- Update Instructions -->
-     <div class="graph-editor">
-        <h2>Graph Editor / Viewer</h2>
-        <p> <!-- UPDATED INSTRUCTIONS -->
-            <b>Right-click canvas:</b> Add Input/Hidden node.<br>
-            <b>Right-click node:</b> Convert type, Delete, Start edge (then left-click target).<br>
-            <b>Right-click edge:</b> Delete edge.
-        </p>
-        <div id="cy"></div>
-    </div>
-            <!-- Configuration Section -->
+    <div class="container">
+        <header>
+            <h1>Dynamic LLM Bayesian Network</h1>
+        </header>
+        <main>
+            <div class="graph-editor">
+                <h2>Graph Editor / Viewer</h2>
+                <p> <!-- Correct Instructions -->
+                    <b>Right-click canvas:</b> Add Input/Hidden node.<br>
+                    <b>Right-click node:</b> Convert type, Delete, Start edge (then left-click target).<br>
+                    <b>Right-click edge:</b> Delete edge.
+                </p>
+                <div id="cy"></div>
+            </div>
+            <!-- Other Sections: Config, Inputs, Output, Logs -->
             <div class="config-section">
-                <h2>Configuration</h2>
-                <div class="config-controls">
-                    <label for="config-name">Save As:</label>
-                    <input type="text" id="config-name" placeholder="Configuration name">
-                    <button id="save-config-button" title="Save current graph">Save</button>
-                    <label for="load-config-select">Load/Manage:</label> <!-- Simplified label -->
-                    <select id="load-config-select">
-                        <option value="">Select a configuration</option>
-                        <!-- Options loaded dynamically -->
-                    </select>
-                    <button id="load-config-button" title="Load selected config">Load</button>
-                    <button id="set-default-button" title="Set selected as default on load">Set Default</button> <!-- Kept based on your JS -->
-                    <button id="delete-config-button" title="Delete selected config">Delete</button>
-                </div>
-                <p>Current Config: <strong id="current-config-name">None</strong></p> <!-- Changed span to strong -->
-                <p id="config-status" class="status-message">Initializing...</p> <!-- Updated class -->
+                 <h2>Configuration</h2>
+                 <div class="config-controls">
+                     <label for="config-name">Save As:</label>
+                     <input type="text" id="config-name" placeholder="Configuration name">
+                     <button id="save-config-button" title="Save current graph">Save</button>
+                     <label for="load-config-select">Load/Manage:</label>
+                     <select id="load-config-select"><option value="">Select a configuration</option></select>
+                     <button id="load-config-button" title="Load selected config">Load</button>
+                     <!-- <button id="set-default-button" title="Set selected as default on load">Set Default</button> --> <!-- Removed Set Default Button -->
+                     <button id="delete-config-button" title="Delete selected config">Delete</button>
+                 </div>
+                 <p>Current Config: <strong id="current-config-name">None</strong></p>
+                 <p id="config-status" class="status-message">Initializing...</p>
             </div>
-
-            <!-- Input Section -->
-            <div class="input-section"> <!-- Use this class -->
-                <h2>Inputs</h2>
-                <div id="input-controls-container">
-                    <p>Load graph to see inputs.</p>
-                </div>
-                <label for="gradient-toggle">Use Gradient Colors:</label>
-                <input type="checkbox" id="gradient-toggle" checked>
-                <button id="update-button" title="Run prediction">Update Probabilities</button>
-                <p id="predict-status" class="status-message"></p> <!-- Updated class -->
+            <div class="input-section">
+                 <h2>Inputs</h2>
+                 <div id="input-controls-container"><p>Load graph to see inputs.</p></div>
+                 <label for="gradient-toggle">Use Gradient Colors:</label>
+                 <input type="checkbox" id="gradient-toggle" checked>
+                 <button id="update-button" title="Run prediction">Update Probabilities</button>
+                 <p id="predict-status" class="status-message"></p>
             </div>
-
-            <!-- Output/Reasoning Section -->
-            <div class="output-section"> <!-- Use this class -->
-                <h2>LLM Reasoning</h2>
-                <div id="llm-reasoning-content">Run prediction to see LLM reasoning.</div>
-                <details>
-                    <summary>Show LLM Input Context</summary>
-                    <div id="input-context"><p>Run prediction to see context.</p></div>
-                    <div id="structure-context"><p>Run prediction to see context.</p></div>
-                    <div id="node-descriptions-context"><p>Run prediction to see context.</p></div>
-                </details>
+            <div class="output-section">
+                 <h2>LLM Reasoning</h2>
+                 <div id="llm-reasoning-content">Run prediction to see LLM reasoning.</div>
+                 <details><summary>Show LLM Input Context</summary>
+                     <div id="input-context"><p>Run prediction to see context.</p></div>
+                     <div id="structure-context"><p>Run prediction to see context.</p></div>
+                     <div id="node-descriptions-context"><p>Run prediction to see context.</p></div>
+                 </details>
             </div>
-
-            <!-- Log Section -->
-            <div class="log-section"> <!-- Use this class -->
-                <h2>Logging</h2>
-                <p>Current Config: <strong id="current-config-name">None</strong></p>
-                <button id="download-session-log-button" title="Download logs from this browser session">Download Session Log</button>
-                <!-- Ensure this button exists -->
-                <button id="download-all-log-button" title="Download all logs for the loaded saved config">Download All Logs for Config</button>
-                <p id="log-count">Log entries this session: 0</p>
+            <div class="log-section">
+                 <h2>Logging</h2>
+                 <p id="log-count">Log entries this session: 0</p>
+                 <button id="download-session-log-button" title="Download logs from this browser session">Download Session Log</button>
+                 <button id="download-all-log-button" title="Download all logs for the loaded saved config">Download All Logs for Config</button>
             </div>
         </main>
-        <div id="loading-spinner" class="spinner hidden"></div> <!-- Keep spinner -->
+        <div id="loading-spinner" class="spinner hidden"></div>
     </div>
-    <script src="script.js"></script>
+    <script src="script.js"></script> <!-- Load Script Last -->
 </body>
 </html>
