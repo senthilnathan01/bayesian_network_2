@@ -8,6 +8,8 @@ import urllib.parse
 from datetime import datetime
 import io
 import csv
+import aiohttp
+from aiohttp import ClientTimeout
 
 print("--- DEBUG: api/main.py TOP LEVEL EXECUTION ---", flush=True)
 
@@ -16,11 +18,12 @@ try:
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import StreamingResponse
     from pydantic import BaseModel, Field, validator
-    import openai
+    from openai import AsyncOpenAI
     from dotenv import load_dotenv
     import redis
-    from vercel_blob import put as blob_put, head as blob_head, download as blob_download, delete as blob_delete
-    print("--- DEBUG: Imported FastAPI, CORS, Pydantic, OpenAI, Redis, Vercel Blob ---", flush=True)
+    from redis.connection import ConnectionPool
+    from vercel_blob import put as blob_put, head as blob_head, delete as blob_delete
+    print("--- DEBUG: Imported FastAPI, CORS, Pydantic, OpenAI, Redis, Vercel Blob, aiohttp ---", flush=True)
 
     app = FastAPI(title="Dynamic Bayesian Network API")
     print("--- DEBUG: FastAPI app created ---", flush=True)
@@ -45,23 +48,49 @@ logger = logging.getLogger(__name__)
 # Load environment variables
 load_dotenv()
 openai_api_key = os.getenv("OPENAI_API_KEY")
-redis_url = os.getenv("UPSTASH_REDIS_URL") or os.getenv("REDIS_URL")
+redis_url = os.getenv("KV_URL") or os.getenv("REDIS_URL")
+vercel_blob_token = os.getenv("BLOB_READ_WRITE_TOKEN")
 
-# Redis Connection
+# Initialize async OpenAI client
+openai_client = None
+if openai_api_key:
+    openai_client = AsyncOpenAI(api_key=openai_api_key)
+else:
+    logger.warning("OPENAI_API_KEY environment variable not found. Prediction endpoints will fail.")
+
+# Redis Connection with Connection Pool
 redis_client = None
+redis_pool = None
 if redis_url:
     try:
-        redis_client = redis.from_url(redis_url, decode_responses=True)
+        redis_pool = ConnectionPool.from_url(redis_url, decode_responses=True)
+        redis_client = redis.Redis(connection_pool=redis_pool)
         redis_client.ping()
         logger.info("--- Successfully connected to Redis ---")
     except redis.ConnectionError as e:
         logger.error(f"--- Failed to connect to Redis: {e} ---", exc_info=True)
         redis_client = None
+        redis_pool = None
 else:
-    logger.warning("--- Redis URL not found. Config storage disabled. ---")
+    logger.warning("--- Redis URL (KV_URL or REDIS_URL) not found. Config storage disabled. ---")
 
-if not openai_api_key:
-    logger.warning("OPENAI_API_KEY environment variable not found.")
+def reconnect_redis():
+    global redis_client, redis_pool
+    if redis_url and not redis_client:
+        try:
+            redis_pool = ConnectionPool.from_url(redis_url, decode_responses=True)
+            redis_client = redis.Redis(connection_pool=redis_pool)
+            redis_client.ping()
+            logger.info("--- Reconnected to Redis ---")
+        except redis.ConnectionError as e:
+            logger.error(f"--- Failed to reconnect to Redis: {e} ---", exc_info=True)
+            redis_client = None
+            redis_pool = None
+
+if not vercel_blob_token:
+    logger.warning("BLOB_READ_WRITE_TOKEN environment variable not found. Blob storage will fail.")
+if not redis_url:
+    logger.warning("No Redis URL provided. Configuration storage will use hardcoded defaults.")
 
 # Constants
 CONFIG_KEY_PREFIX = "bn_config:"
@@ -216,10 +245,9 @@ def get_dynamic_node_info(graph: GraphStructure):
 
     return node_parents, node_descriptions, node_types, all_nodes, target_nodes, input_nodes
 
-def call_openai_for_probabilities(input_states: Dict[str, float], graph: GraphStructure) -> Dict[str, float]:
-    if not openai_api_key:
+async def call_openai_for_probabilities(input_states: Dict[str, float], graph: GraphStructure) -> Dict[str, float]:
+    if not openai_client:
         raise HTTPException(status_code=500, detail="OpenAI API key not configured")
-    openai.api_key = openai_api_key
 
     node_parents, node_descriptions, _, _, target_nodes, input_nodes = get_dynamic_node_info(graph)
 
@@ -237,26 +265,19 @@ def call_openai_for_probabilities(input_states: Dict[str, float], graph: GraphSt
     if not target_nodes:
         return {}
 
-    # Enhanced prompt with detailed node and relationship descriptions
+    # Simplified node info for prompt
     node_info = []
-    for node_id in node_descriptions:
+    for node_id in target_nodes:
         parents = node_parents.get(node_id, [])
-        node_type = "input" if node_id in input_nodes else "hidden"
-        parent_desc = ", ".join([f"{p} ({node_descriptions.get(p, p)})" for p in parents]) if parents else "none"
-        node_info.append(f"- {node_id} ({node_descriptions[node_id]}): {node_type} node, influenced by {parent_desc}")
-    structure_description = f"""
-    Bayesian Network Structure:
-    Nodes and Relationships:
-    { '\n'.join(node_info) }
-    """
+        parent_desc = ", ".join([node_descriptions.get(p, p) for p in parents]) if parents else "none"
+        node_info.append(f"- {node_id} ({node_descriptions[node_id]}): influenced by {parent_desc}")
+    structure_description = f"Nodes:\n{ '\n'.join(node_info) }"
 
     system_message = """
-    You are an expert probabilistic reasoner modeling a Bayesian Network for cognitive processes.
-    You are given a Directed Acyclic Graph (DAG) with nodes representing cognitive factors or actions.
-    Each node is binary (states 0 or 1), and you must estimate P(Node=1) for all 'hidden' nodes based on the provided P(Node=1) for 'input' nodes.
-    Use the node descriptions and their dependency relationships to infer how input probabilities propagate through the network.
-    Consider the semantic meaning of each node and its parents to make informed estimates.
-    Return a JSON object mapping each hidden node to its estimated P(Node=1) (float, 0.0 to 1.0).
+    You are an expert probabilistic reasoner modeling a Bayesian Network.
+    Given a Directed Acyclic Graph (DAG) with binary nodes (states 0 or 1), estimate P(Node=1) for hidden nodes based on input node probabilities.
+    Use node descriptions and dependencies to infer probabilities.
+    Return a JSON object mapping each hidden node to P(Node=1) (float, 0.0 to 1.0).
     Example: {"HiddenNode1": 0.7, "HiddenNode2": 0.4}
     Output ONLY the JSON object.
     """
@@ -267,19 +288,19 @@ def call_openai_for_probabilities(input_states: Dict[str, float], graph: GraphSt
     Network Structure:
     {structure_description}
 
-    Estimate P(Node=1) for hidden nodes ({', '.join(target_nodes)}) based on the inputs and network structure.
+    Estimate P(Node=1) for hidden nodes ({', '.join(target_nodes)}).
     """
 
     logger.debug("Sending probability prompt to OpenAI...")
     try:
-        response = openai.chat.completions.create(
+        response = await openai_client.chat.completions.create(
             model="gpt-4o",
             messages=[
                 {"role": "system", "content": system_message},
                 {"role": "user", "content": user_message}
             ],
             response_format={"type": "json_object"},
-            max_tokens=1000,
+            max_tokens=500,
             temperature=0.1,
             n=1
         )
@@ -296,84 +317,51 @@ def call_openai_for_probabilities(input_states: Dict[str, float], graph: GraphSt
         return validated_probs
     except json.JSONDecodeError as e:
         logger.error(f"Failed to parse LLM JSON: {e}")
-        raise HTTPException(status_code=500, detail=f"LLM JSON parse error: {e}")
-    except openai.APIError as e:
-        logger.error(f"OpenAI API Error: {e}")
-        raise HTTPException(status_code=502, detail=f"OpenAI API Error: {e.body}")
-    except openai.AuthenticationError as e:
-        logger.error(f"OpenAI Auth Error: {e}")
-        raise HTTPException(status_code=401, detail=f"OpenAI Auth Failed: {e.body}")
-    except openai.RateLimitError as e:
-        logger.error(f"OpenAI Rate Limit: {e}")
-        raise HTTPException(status_code=429, detail=f"OpenAI Rate Limit: {e.body}")
+        raise HTTPException(status_code=500, detail=f"LLM JSON parse error: {str(e)}")
     except Exception as e:
-        logger.error(f"Error in OpenAI call: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"OpenAI request failed: {e}")
+        logger.error(f"Error in OpenAI probability call: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"OpenAI request failed: {str(e)}")
 
-def call_openai_for_reasoning(input_states: Dict[str, float], graph: GraphStructure, estimated_probabilities: Dict[str, float]) -> str:
-    if not openai_api_key:
+async def call_openai_for_reasoning(input_states: Dict[str, float], graph: GraphStructure, estimated_probabilities: Dict[str, float]) -> str:
+    if not openai_client:
         return "Reasoning disabled: OpenAI API key not configured."
-    openai.api_key = openai_api_key
 
-    node_parents, node_descriptions, _, all_nodes, target_nodes, input_nodes = get_dynamic_node_info(graph)
+    node_parents, node_descriptions, _, _, target_nodes, _ = get_dynamic_node_info(graph)
 
     input_desc_list = []
     for node, value in input_states.items():
-        if node in input_nodes:
-            state_desc = "High" if value >= 0.66 else ("Medium" if value >= 0.33 else "Low")
-            input_desc_list.append(f"- {node} ({node_descriptions.get(node, node)}): {state_desc} (P(1)={value:.2f})")
+        state_desc = "High" if value >= 0.66 else ("Medium" if value >= 0.33 else "Low")
+        input_desc_list.append(f"- {node} ({node_descriptions.get(node, node)}): {state_desc} (P(1)={value:.2f})")
     input_context = "\n".join(input_desc_list)
 
-    node_info = []
-    for node_id in node_descriptions:
-        parents = node_parents.get(node_id, [])
-        node_type = "input" if node_id in input_nodes else "hidden"
-        parent_desc = ", ".join([f"{p} ({node_descriptions.get(p, p)})" for p in parents]) if parents else "none"
-        node_info.append(f"- {node_id} ({node_descriptions[node_id]}): {node_type} node, influenced by {parent_desc}")
-    structure_description = f"""
-    Network Structure:
-    { '\n'.join(node_info) }
-    """
-
     probs_text = "\n".join([f"- {node} ({node_descriptions.get(node, node)}): P(1)={prob:.3f}" for node, prob in estimated_probabilities.items()])
-    all_probs = {**input_states, **estimated_probabilities}
-    all_probs_text = "\n".join([f"- {node} ({node_descriptions.get(node, node)}): P(1)={all_probs.get(node, 'N/A'):.3f}" for node in all_nodes])
 
     system_message = """
-    You are an expert analyst explaining a Bayesian Network simulation for cognitive processes.
-    Given the input probabilities, network structure (nodes, descriptions, dependencies), and estimated probabilities for hidden nodes,
-    provide a concise explanation for why each hidden node received its estimated P(Node=1).
-    Focus on how the input values and parent nodes' semantic meanings influenced each hidden node's probability.
-    Structure the explanation as a list, one item per hidden node, with clear reasoning.
+    You are an expert analyst explaining a Bayesian Network simulation.
+    Given input probabilities, hidden node probabilities, and dependencies, explain why each hidden node received its P(Node=1).
+    Focus on parent nodes' influence. Use a concise list format.
     Example:
-    - Node IS1 (Confidence): Estimated P(1)=0.7 due to high Motivation (A5) and moderate Task Understanding (IS3).
-    Keep it concise and avoid repeating the structure unnecessarily.
+    - Node IS1 (Confidence): P(1)=0.7 due to high Motivation and moderate Task Understanding.
     """
     user_message = f"""
     Inputs (P=1):
     {input_context}
 
-    Network Structure:
-    {structure_description}
-
-    Estimated Probabilities for Hidden Nodes:
+    Estimated Probabilities:
     {probs_text}
 
-    All Probabilities:
-    {all_probs_text}
-
-    Explain why each hidden node ({', '.join(target_nodes)}) received its estimated probability, considering the inputs and dependencies.
+    Explain why each hidden node ({', '.join(target_nodes)}) received its probability.
     """
 
     logger.debug("Sending reasoning prompt to OpenAI...")
     try:
-        response = openai.chat.completions.create(
+        response = await openai_client.chat.completions.create(
             model="gpt-4o",
             messages=[
                 {"role": "system", "content": system_message},
                 {"role": "user", "content": user_message}
             ],
-            max_tokens=500,
+            max_tokens=600,
             temperature=0.3,
             n=1
         )
@@ -382,11 +370,11 @@ def call_openai_for_reasoning(input_states: Dict[str, float], graph: GraphStruct
         return reasoning_text
     except Exception as e:
         logger.error(f"Error in reasoning call: {e}", exc_info=True)
-        return f"Could not generate reasoning: {e}"
+        return f"Could not generate reasoning: {str(e)}"
 
 # API Endpoints
 @app.get("/api/ping")
-def ping():
+async def ping():
     redis_status = "disabled"
     if redis_client:
         try:
@@ -396,22 +384,50 @@ def ping():
             redis_status = "disconnected"
     return {"message": "pong", "redis_status": redis_status}
 
+@app.get("/api/vercel_blob_test")
+async def vercel_blob_test():
+    if not vercel_blob_token:
+        raise HTTPException(status_code=500, detail="BLOB_READ_WRITE_TOKEN not configured")
+    try:
+        test_filename = "test_blob.csv"
+        test_content = "Test,Timestamp,Data\n1,2023-10-01T00:00:00Z,TestData".encode('utf-8')
+        put_result = await blob_put(
+            pathname=test_filename,
+            body=test_content,
+            options={'access': 'public', 'add_random_suffix': False, 'content_type': 'text/csv', 'token': vercel_blob_token}
+        )
+        async with aiohttp.ClientSession(timeout=ClientTimeout(total=5)) as session:
+            async with session.get(put_result['url']) as response:
+                if response.status != 200:
+                    raise Exception(f"Failed to fetch blob: HTTP {response.status}")
+                content = await response.read()
+        await blob_delete(pathname=test_filename, options={'token': vercel_blob_token})
+        return {"status": "success", "content": content.decode('utf-8')}
+    except Exception as e:
+        logger.error(f"Vercel Blob test failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Vercel Blob test failed: {str(e)}")
+
 @app.get("/api/configs/default", response_model=Dict[str, Any])
 async def get_default_configuration():
     logger.info("Serving default configuration.")
     if redis_client:
         try:
-            default_id = redis_client.get(DEFAULT_CONFIG_KEY)
-            if default_id:
-                config_json = redis_client.get(default_id)
-                if config_json:
-                    return json.loads(config_json)
+            reconnect_redis()  # Attempt to reconnect if connection is lost
+            if redis_client:
+                default_id = redis_client.get(DEFAULT_CONFIG_KEY)
+                if default_id:
+                    config_json = redis_client.get(default_id)
+                    if config_json:
+                        return json.loads(config_json)
         except redis.RedisError as e:
-            logger.error(f"Error fetching default config from Redis: {e}")
+            logger.error(f"Error fetching default config from Redis: {e}", exc_info=True)
+    logger.info("Returning hardcoded default configuration due to Redis unavailability.")
     return DEFAULT_GRAPH_STRUCTURE
 
 @app.post("/api/configs", status_code=201)
 async def save_configuration(payload: SaveConfigPayload):
+    if not redis_client:
+        reconnect_redis()
     if not redis_client:
         raise HTTPException(status_code=503, detail="Storage connection unavailable.")
     is_valid_dag, cycle_info = is_dag(payload.graph_structure)
@@ -426,30 +442,39 @@ async def save_configuration(payload: SaveConfigPayload):
         return {"message": "Configuration saved", "config_id": config_id, "config_name": payload.config_name}
     except redis.RedisError as e:
         logger.error(f"Error saving to Redis: {e}", exc_info=True)
-        raisedigraph
-        raise HTTPException(status_code=500, detail=f"Failed to save: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to save: {str(e)}")
 
 @app.get("/api/configs", response_model=List[Dict[str, str]])
 async def list_configurations():
+    logger.info("Listing configurations.")
     if not redis_client:
-        raise HTTPException(status_code=503, detail="Storage connection unavailable.")
+        reconnect_redis()
+    if not redis_client:
+        logger.warning("Redis unavailable. Returning empty config list.")
+        return []
     try:
         config_keys = [key for key in redis_client.scan_iter(match=f"{CONFIG_KEY_PREFIX}*")]
         configs_summary = []
         for key in config_keys:
-            config_json = redis_client.get(key)
-            if config_json:
-                config_data = json.loads(config_json)
-                configs_summary.append({"id": config_data.get("id", key), "name": config_data.get("name", "Unnamed")})
-            else:
+            try:
+                config_json = redis_client.get(key)
+                if config_json:
+                    config_data = json.loads(config_json)
+                    configs_summary.append({"id": config_data.get("id", key), "name": config_data.get("name", "Unnamed")})
+                else:
+                    configs_summary.append({"id": key, "name": "*Load Error*"})
+            except (redis.RedisError, json.JSONDecodeError) as e:
+                logger.error(f"Error processing config {key}: {e}", exc_info=True)
                 configs_summary.append({"id": key, "name": "*Load Error*"})
         return configs_summary
     except redis.RedisError as e:
         logger.error(f"Error listing configs: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to list: {e}")
+        return []
 
 @app.get("/api/configs/{config_id}", response_model=Dict[str, Any])
 async def load_configuration(config_id: str):
+    if not redis_client:
+        reconnect_redis()
     if not redis_client:
         raise HTTPException(status_code=503, detail="Storage connection unavailable.")
     config_id_with_prefix = config_id if config_id.startswith(CONFIG_KEY_PREFIX) else f"{CONFIG_KEY_PREFIX}{config_id}"
@@ -463,10 +488,12 @@ async def load_configuration(config_id: str):
         raise HTTPException(status_code=500, detail="Config data corrupted.")
     except redis.RedisError as e:
         logger.error(f"Error loading {config_id_with_prefix}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Load failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Load failed: {str(e)}")
 
 @app.delete("/api/configs/{config_id}", status_code=200)
 async def delete_configuration(config_id: str):
+    if not redis_client:
+        reconnect_redis()
     if not redis_client:
         raise HTTPException(status_code=503, detail="Storage connection unavailable.")
     config_id_with_prefix = config_id if config_id.startswith(CONFIG_KEY_PREFIX) else f"{CONFIG_KEY_PREFIX}{config_id}"
@@ -476,17 +503,20 @@ async def delete_configuration(config_id: str):
             raise HTTPException(status_code=404, detail="Configuration not found.")
         log_filename = f"{LOG_FILENAME_PREFIX}{config_id_with_prefix}{LOG_FILENAME_SUFFIX}"
         try:
-            await blob_delete(log_filename)
+            await blob_delete(pathname=log_filename, options={'token': vercel_blob_token})
             logger.info(f"Deleted log file '{log_filename}'.")
         except Exception as e:
             logger.warning(f"Failed to delete log file '{log_filename}': {e}")
+        logger.info(f"Deleted config '{config_id_with_prefix}'.")
         return {"message": "Configuration deleted successfully."}
     except redis.RedisError as e:
         logger.error(f"Error deleting {config_id_with_prefix}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to delete: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete: {str(e)}")
 
 @app.post("/api/configs/set_default", status_code=200)
 async def set_default_configuration(config_id: str = Body(...)):
+    if not redis_client:
+        reconnect_redis()
     if not redis_client:
         raise HTTPException(status_code=503, detail="Storage connection unavailable.")
     config_id_with_prefix = config_id if config_id.startswith(CONFIG_KEY_PREFIX) else f"{CONFIG_KEY_PREFIX}{config_id}"
@@ -500,7 +530,7 @@ async def set_default_configuration(config_id: str = Body(...)):
         return {"message": f"Configuration '{config_data['name']}' set as default."}
     except redis.RedisError as e:
         logger.error(f"Error setting default config: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to set default: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to set default: {str(e)}")
 
 @app.post("/api/predict_openai_bn_single_call")
 async def predict_openai_bn_single_call(payload: PredictionPayload):
@@ -510,8 +540,10 @@ async def predict_openai_bn_single_call(payload: PredictionPayload):
         if not is_valid_dag:
             raise HTTPException(status_code=400, detail=f"Invalid graph: Not a DAG. {cycle_info or ''}")
 
-        estimated_target_probs = call_openai_for_probabilities(payload.input_values, payload.graph_structure)
-        reasoning_text = call_openai_for_reasoning(payload.input_values, payload.graph_structure, estimated_target_probs)
+        logger.info("Calling OpenAI for probabilities...")
+        estimated_target_probs = await call_openai_for_probabilities(payload.input_values, payload.graph_structure)
+        logger.info("Calling OpenAI for reasoning...")
+        reasoning_text = await call_openai_for_reasoning(payload.input_values, payload.graph_structure, estimated_target_probs)
         all_current_probabilities = {**payload.input_values, **estimated_target_probs}
         _, node_descriptions, _, all_nodes, _, _ = get_dynamic_node_info(payload.graph_structure)
         final_result_probs = {}
@@ -549,19 +581,25 @@ async def predict_openai_bn_single_call(payload: PredictionPayload):
             probabilities=log_probs
         )
         try:
+            logger.info("Attempting to log prediction to blob...")
             await log_data_to_blob(log_entry)
+            logger.info("Prediction logged successfully.")
         except Exception as e:
-            logger.error(f"Failed to log prediction: {e}", exc_info=True)
+            logger.warning(f"Failed to log prediction: {e}. Continuing without logging.")
 
         logger.info("Prediction completed successfully.")
         return response_payload
     except HTTPException as e:
+        logger.error(f"HTTPException in prediction: {e.detail}", exc_info=True)
         raise e
     except Exception as e:
-        logger.error(f"Prediction error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Internal server error: {e}")
+        logger.error(f"Unexpected error in prediction: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 async def log_data_to_blob(log_entry: LogPayload):
+    if not vercel_blob_token:
+        logger.warning("BLOB_READ_WRITE_TOKEN not configured. Skipping log.")
+        return
     if not log_entry.configId or log_entry.configId == "unknown" or log_entry.configId == "default-config-001":
         logger.warning(f"Skipping log for unsaved/default config: {log_entry.configId}")
         return
@@ -581,9 +619,10 @@ async def log_data_to_blob(log_entry: LogPayload):
     try:
         needs_headers = False
         try:
-            await blob_head(pathname=log_filename)
+            await blob_head(pathname=log_filename, options={'token': vercel_blob_token})
         except Exception:
             needs_headers = True
+            logger.info(f"Log file {log_filename} does not exist. Will create with headers.")
 
         output = io.StringIO()
         writer = csv.writer(output)
@@ -591,12 +630,23 @@ async def log_data_to_blob(log_entry: LogPayload):
         existing_content = b""
         if not needs_headers:
             try:
-                blob_response = await blob_download(pathname=log_filename)
-                existing_content = await blob_response.read()
-                if existing_content.endswith(b'\n'):
-                    existing_content = existing_content[:-1]
+                put_result = await blob_head(pathname=log_filename, options={'token': vercel_blob_token})
+                blob_url = put_result.get('url')
+                if not blob_url:
+                    logger.warning(f"No URL returned for {log_filename}. Treating as new file.")
+                    needs_headers = True
+                else:
+                    async with aiohttp.ClientSession(timeout=ClientTimeout(total=3)) as session:
+                        async with session.get(blob_url) as response:
+                            if response.status != 200:
+                                logger.warning(f"Failed to fetch {log_filename}: HTTP {response.status}")
+                                needs_headers = True
+                            else:
+                                existing_content = await response.read()
+                                if existing_content.endswith(b'\n'):
+                                    existing_content = existing_content[:-1]
             except Exception as e:
-                logger.warning(f"Could not download {log_filename}: {e}")
+                logger.warning(f"Could not retrieve {log_filename}: {e}")
                 needs_headers = True
                 existing_content = b""
 
@@ -611,18 +661,20 @@ async def log_data_to_blob(log_entry: LogPayload):
         final_csv_content = output.getvalue().encode('utf-8')
         output.close()
 
-        await blob_put(
+        put_result = await blob_put(
             pathname=log_filename,
             body=final_csv_content,
-            options={'addRandomSuffix': False, 'contentType': 'text/csv'}
+            options={'access': 'public', 'add_random_suffix': False, 'content_type': 'text/csv', 'token': vercel_blob_token}
         )
-        logger.info(f"Appended {len(new_rows)} entries to {log_filename}")
+        logger.info(f"Appended {len(new_rows)} entries to {log_filename} at {put_result['url']}")
     except Exception as e:
         logger.error(f"Failed to log to {log_filename}: {e}", exc_info=True)
         raise e
 
 @app.get("/api/download_log/{config_id}")
 async def download_log_file(config_id: str):
+    if not vercel_blob_token:
+        raise HTTPException(status_code=500, detail="BLOB_READ_WRITE_TOKEN not configured")
     if not config_id or config_id == "unknown" or config_id == "default-config-001":
         raise HTTPException(status_code=400, detail="Cannot download logs for unsaved/default configs.")
 
@@ -631,11 +683,19 @@ async def download_log_file(config_id: str):
     logger.info(f"Downloading log: {log_filename}")
 
     try:
-        blob_response = await blob_download(pathname=log_filename, options={'stream': True})
+        put_result = await blob_head(pathname=log_filename, options={'token': vercel_blob_token})
+        blob_url = put_result.get('url')
+        if not blob_url:
+            raise HTTPException(status_code=404, detail=f"No URL found for log file {log_filename}")
+        async with aiohttp.ClientSession(timeout=ClientTimeout(total=3)) as session:
+            async with session.get(blob_url) as response:
+                if response.status != 200:
+                    raise HTTPException(status_code=404, detail=f"Failed to fetch log file: HTTP {response.status}")
+                content = await response.read()
         safe_filename_part = config_id_with_prefix.replace(CONFIG_KEY_PREFIX, "")
         download_filename = f"log_{safe_filename_part}.csv"
         return StreamingResponse(
-            blob_response.iter_bytes(),
+            io.BytesIO(content),
             media_type='text/csv',
             headers={'Content-Disposition': f'attachment; filename="{download_filename}"'}
         )
@@ -644,7 +704,7 @@ async def download_log_file(config_id: str):
         raise HTTPException(status_code=404, detail=f"Log file not found for config ID {config_id}")
 
 @app.get("/")
-def root():
+async def root():
     logger.info("Entered / route.")
     return {"message": "BN API is running."}
 
