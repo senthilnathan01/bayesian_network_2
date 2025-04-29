@@ -291,9 +291,23 @@ async def ping(): # ... keep as before ...
     except Exception as e: redis_status = f"disconnected ({e})"
     return {"message": "pong", "redis_status": redis_status}
 
-@app.get("/api/configs/default")
-async def get_default_configuration(): # ... keep as before ...
-     logger.info("Serving default configuration."); return DEFAULT_GRAPH_STRUCTURE
+@app.get("/api/configs/default", response_model=Dict[str, Any])
+async def get_default_configuration():
+    """
+    Reliably returns the hardcoded default graph configuration.
+    Avoids database interaction for this critical initial load path.
+    """
+    logger.info("Serving hardcoded default configuration.")
+    try:
+        # Ensure the default structure itself is valid before returning
+        # (This is a sanity check, should pass if defined correctly)
+        GraphStructure.parse_obj(DEFAULT_GRAPH_STRUCTURE["graph_structure"])
+        return DEFAULT_GRAPH_STRUCTURE
+    except Exception as e:
+        logger.error(f"FATAL: Hardcoded DEFAULT_GRAPH_STRUCTURE is invalid! Error: {e}", exc_info=True)
+        # If the hardcoded default is broken, we have a major problem
+        raise HTTPException(status_code=500, detail="Server configuration error: Default graph is invalid.")
+
 
 @app.post("/api/configs")
 async def save_configuration(payload: SaveConfigPayload): # ... keep sync redis call for simplicity ...
