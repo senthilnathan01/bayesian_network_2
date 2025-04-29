@@ -1,7 +1,9 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <!-- ... meta, title, css ... -->
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Editable LLM Bayesian Network</title>
     <link rel="stylesheet" href="style.css">
 
     <!-- Core Libs -->
@@ -17,7 +19,7 @@
     <script src="https://unpkg.com/@popperjs/core@2"></script>
     <script src="https://unpkg.com/tippy.js@6"></script>
     <script src="https://unpkg.com/cytoscape-context-menus@4.1.0/cytoscape-context-menus.js"></script>
-    <!-- NO EDGE HANDLES SCRIPT -->
+    <!-- <script src="https://unpkg.com/cytoscape-edgehandles@3.6.0/cytoscape-edgehandles.js"></script> --> <!-- REMOVED/COMMENTED -->
 
     <script>
         console.log("HTML: Editing library scripts loaded (excluding edgehandles).");
@@ -25,9 +27,7 @@
 </head>
 <body>
     <div class="container">
-        <header>
-            <h1>Dynamic LLM Bayesian Network</h1>
-        </header>
+        <header> <h1>Dynamic LLM Bayesian Network</h1> </header>
         <main>
             <div class="graph-editor">
                 <h2>Graph Editor / Viewer</h2>
@@ -38,7 +38,6 @@
                 </p>
                 <div id="cy"></div>
             </div>
-            <!-- Other Sections: Config, Inputs, Output, Logs -->
             <div class="config-section">
                  <h2>Configuration</h2>
                  <div class="config-controls">
