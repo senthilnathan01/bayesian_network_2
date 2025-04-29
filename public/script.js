@@ -48,7 +48,35 @@ function logPrediction(inputs, probabilities) { const logEntry = { timestamp: ne
 function clearSessionLog() { sessionLog = []; const logCountEl = document.getElementById('log-count'); if (logCountEl) logCountEl.textContent = `Session logs: 0`; }
 function clearLLMOutputs() { const reasonEl=document.getElementById('llm-reasoning-content'); if(reasonEl) reasonEl.textContent='Run prediction...'; const ic=document.getElementById('input-context'); if(ic) ic.innerHTML='<p>N/A</p>'; const sc=document.getElementById('structure-context'); if(sc) sc.innerHTML='<p>N/A</p>'; const dc=document.getElementById('node-descriptions-context'); if(dc) dc.innerHTML='<p>N/A</p>'; setStatusMessage('predict-status', "", ""); }
 function downloadSessionLog() { if(sessionLog.length===0){alert("No logs.");return;} const h=['Timestamp','ConfigID','ConfigName','NodeID','ProbP1']; const r=[]; sessionLog.forEach(l=>{ const probs = l.probabilities || {}; Object.entries(probs).forEach(([n,p])=>{ if(typeof p === 'number') r.push([l.timestamp,l.configId,l.configName,n,p.toFixed(4)]); else console.warn("Skip non-numeric prob in session download:", n, p); }); }); const csv=Papa.unparse({fields:h,data:r}); triggerCsvDownload(csv, `session_log_${(currentConfig?.name||'unsaved').replace(/[^a-z0-9]/gi,'_')}`); }
-async function downloadAllLogs() { if(!currentConfig||!currentConfig.id||currentConfig.id==="unknown"||currentConfig.id==="default-config-001"){alert("Load saved config.");return;} setStatusMessage('predict-status',"Downloading logs...","loading"); showSpinner(true); enableUI(false); await retryFetch(async()=>{ const r = await fetch(`/api/download_log/${currentConfig.id}`); if(!r.ok){ if(r.status === 404) throw new Error(`No logs for '${currentConfig.name}'.`); const e = await r.json().catch(()=>({detail:`HTTP ${r.status}`})); throw new Error(e.detail); } const b = await r.blob(); triggerCsvDownload(b, `all_logs_${currentConfig.name.replace(/[^a-z0-9]/gi,'_')}`); setStatusMessage('predict-status',"Logs downloaded.","success"); },3,()=>setStatusMessage('predict-status',"Download fail. Retry...","error")).catch(e=>{setStatusMessage('predict-status',`Log download fail: ${e.message}`,"error");}).finally(()=>{enableUI(true);showSpinner(false);});}
+
+async function downloadAllLogs() {
+    if (!currentConfig || !currentConfig.id || currentConfig.id === "unknown" || currentConfig.id === "default-config-001") {
+        alert("Load a saved config to download its historical logs.");
+        return;
+    }
+    const configId = currentConfig.id;
+    const configName = currentConfig.name;
+    setStatusMessage('predict-status', `Downloading logs for ${configName}...`, "loading");
+    showSpinner(true);
+    enableUI(false);
+    try {
+        const downloadUrl = `/api/download_log/${configId}`;
+        // Trigger download by navigating - simpler than fetch for file downloads
+        window.location.href = downloadUrl;
+        // Provide feedback, although direct success confirmation is hard this way
+        setTimeout(() => {
+             setStatusMessage('predict-status', `Log download initiated for ${configName}.`, "success");
+             enableUI(true); showSpinner(false);
+         }, 2000); // Assume success after 2 seconds
+
+    } catch (error) { // Catch potential errors *before* navigation (unlikely here)
+        console.error("Error initiating all logs download:", error);
+        setStatusMessage('predict-status', `Log download failed: ${error.message}`, "error");
+        enableUI(true); showSpinner(false);
+    }
+    // Note: We can't easily use retryFetch with window.location.href
+}
+
 function triggerCsvDownload(csvDataOrBlob, baseFilename) { const blob = (csvDataOrBlob instanceof Blob) ? csvDataOrBlob : new Blob([csvDataOrBlob], { type: 'text/csv;charset=utf-8;' }); const link = document.createElement("a"); const url = URL.createObjectURL(blob); link.setAttribute("href", url); const timestampStr = new Date().toISOString().replace(/[:.]/g, '-'); link.setAttribute("download", `${baseFilename}_${timestampStr}.csv`); link.style.visibility = 'hidden'; document.body.appendChild(link); link.click(); document.body.removeChild(link); URL.revokeObjectURL(url); }
 function markConfigUnsaved() { const d = document.getElementById('current-config-name'); if (d && !d.textContent.endsWith('*')) { d.textContent += '*'; setStatusMessage('config-status', "Graph modified. Save changes.", "loading"); } }
 function clearUnsavedMark() { const d = document.getElementById('current-config-name'); if (d && d.textContent.endsWith('*')) { d.textContent = d.textContent.slice(0, -1); } }
@@ -187,34 +215,53 @@ function setupCytoscapeEventListeners() {
 }
 
 // --- Prediction ---
-async function fetchAndUpdateLLM() { if(!currentConfig||!currentConfig.graph_structure||!currentConfig.graph_structure.nodes.length===0){alert("Load config first.");return;} if(!cy){alert("Graph not ready.");return;} setStatusMessage('predict-status',"Inputs...","loading"); let inputs={input_values:{}}; let invalid=false; currentConfig.graph_structure.nodes.filter(n=>n.nodeType==='input').forEach(n=>{const el=document.getElementById(`input-${n.id}`);const cont=el?.parentElement; let v=0.5; if(el){v=parseFloat(el.value);if(isNaN(v)||v<0||v>1){setStatusMessage('predict-status',`Invalid ${n.id}.`,"error");cont?.classList.add('invalid-input');invalid=true;}else{cont?.classList.remove('invalid-input');}} inputs.input_values[n.id]=isNaN(v)?0.5:Math.max(0,Math.min(1,v));}); if(invalid){setStatusMessage('predict-status',"Fix inputs (0-1).","error");return;} const payload={...inputs,graph_structure:currentConfig.graph_structure,config_id:currentConfig.id,config_name:currentConfig.name}; setStatusMessage('predict-status',"Predicting...","loading"); showSpinner(true); enableUI(false); clearLLMOutputs(); await retryFetch(async()=>{ const r=await fetch('/api/predict_openai_bn_single_call',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}); const d=await r.json(); if(!r.ok)throw new Error(d.detail||`HTTP ${r.status}`); updateNodeProbabilities(d.probabilities); displayLLMReasoning(d.llm_reasoning); displayLLMContext(d.llm_context); setStatusMessage('predict-status',"Complete.","success"); logPrediction(inputs.input_values,d.probabilities);},3,()=>setStatusMessage('predict-status',"Predict fail. Retry...","error")).catch(e=>{console.error("Predict error:",e);setStatusMessage('predict-status',`Predict failed: ${e.message}`,"error");clearLLMOutputs();}).finally(()=>{enableUI(true);showSpinner(false);});}
+async function fetchAndUpdateLLM() {
+    if (!currentConfig || !currentConfig.graph_structure || !currentConfig.graph_structure.nodes.length === 0) { alert("Load config first."); return; }
+    if (!cy) { alert("Graph not ready."); return; }
+    setStatusMessage('predict-status', "Gathering inputs...", "loading");
+    let inputs = { input_values: {} }; let invalid = false;
+    currentConfig.graph_structure.nodes.filter(n => n.nodeType === 'input').forEach(n => {
+        const el = document.getElementById(`input-${n.id}`); const cont = el?.parentElement; let v = 0.5;
+        if (el) { v = parseFloat(el.value); if (isNaN(v) || v < 0 || v > 1) { setStatusMessage('predict-status', `Invalid ${n.id}.`, "error"); cont?.classList.add('invalid-input'); invalid = true; } else { cont?.classList.remove('invalid-input'); } }
+        inputs.input_values[n.id] = isNaN(v) ? 0.5 : Math.max(0, Math.min(1, v));
+    });
+    if (invalid) { setStatusMessage('predict-status', "Fix inputs (0-1).", "error"); return; }
 
+    // *** ADD config_id and config_name to payload ***
+    const payload = {
+        ...inputs,
+        graph_structure: currentConfig.graph_structure,
+        config_id: currentConfig.id, // Send ID for logging
+        config_name: currentConfig.name // Send Name for logging
+    };
+    // *** END of ADDED fields ***
 
-// ==================================================
-// --- DOMContentLoaded Listener (AT THE END) ---
-// ==================================================
+    setStatusMessage('predict-status', "Running prediction...", "loading");
+    showSpinner(true); enableUI(false); clearLLMOutputs();
+    await retryFetch(async () => {
+        const r = await fetch('/api/predict_openai_bn_single_call', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.detail || `HTTP error ${r.status}`);
+        updateNodeProbabilities(d.probabilities);
+        displayLLMReasoning(d.llm_reasoning);
+        displayLLMContext(d.llm_context);
+        setStatusMessage('predict-status', "Complete.", "success");
+        // No need to call logPrediction here anymore, backend handles it
+        // logPrediction(inputs.input_values, d.probabilities);
+    }, 3, () => setStatusMessage('predict-status', "Predict fail. Retry...", "error"))
+    .catch(e => { console.error("Predict error:", e); setStatusMessage('predict-status', `Predict failed: ${e.message}`, "error"); clearLLMOutputs(); })
+    .finally(() => { enableUI(true); showSpinner(false); });
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
     console.log("DOM Content Loaded. Starting initialization sequence...");
-
-    // Check core library and container first - Redundant but safe
     if (typeof cytoscape !== 'function') { alert("Error: Cytoscape library failed to load."); setStatusMessage('config-status', "Error: Core graph library failed.", "error"); showSpinner(false); return; }
     if (!document.getElementById('cy')) { alert("Error: Graph container element 'cy' not found."); setStatusMessage('config-status', "Error: Graph container missing.", "error"); showSpinner(false); return; }
-
-    // 1. Initialize Cytoscape Instance
-    initializeCytoscape(); // Creates 'cy' instance
-
-    if (!cy) { showSpinner(false); return; } // Stop if core failed
-
-    // 2. Initialize Editing Extensions (will try to register/init)
+    initializeCytoscape();
+    if (!cy) { showSpinner(false); return; }
     initializeEditingExtensions();
-
-    // 3. Initialize UI Button Listeners
     initializeUI();
-
-    // 4. Add Cytoscape Listeners for Click-to-Connect
     setupCytoscapeEventListeners();
-
-    // 5. Load Data
     showSpinner(true);
     setStatusMessage('config-status', "Loading config data...", "loading");
     try {
