@@ -18,7 +18,7 @@ try:
     from fastapi import FastAPI, HTTPException, Body, Response, UploadFile, File, Form
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import StreamingResponse
-    from pydantic import BaseModel, Field, field_field_validator, ConfigDict
+    from pydantic import BaseModel, Field, field_validator, ConfigDict
     from openai import AsyncOpenAI # Use Async client
     from dotenv import load_dotenv
     import redis
@@ -657,31 +657,30 @@ async def list_configurations(): # ... (use await redis_client.scan_iter, await 
 
 @app.get("/api/configs/{config_id}", response_model=Dict[str, Any])
 async def load_configuration(config_id: str): # ... (use await redis_client.get) ...
-     if not redis_client: raise HTTPException(503, "Storage unavailable.")
-     config_id_with_prefix = config_id if config_id.startswith(CONFIG_KEY_PREFIX) else f"{CONFIG_KEY_PREFIX}{config_id}"
-     try: config_json = await redis_client.get(config_id_with_prefix);
-     except Exception as e: logger.error(f"Redis load error: {e}"); raise HTTPException(500, "Storage error")
-     if config_json is None: raise HTTPException(404, "Config not found.")
-     try: return json.loads(config_json)
-     except Exception: raise HTTPException(500, "Config data corrupted.")
+    if not redis_client: raise HTTPException(503, "Storage unavailable.")
+    config_id_with_prefix = config_id if config_id.startswith(CONFIG_KEY_PREFIX) else f"{CONFIG_KEY_PREFIX}{config_id}"
+    try: config_json = await redis_client.get(config_id_with_prefix);
+    except Exception as e: logger.error(f"Redis load error: {e}"); raise HTTPException(500, "Storage error")
+    if config_json is None: raise HTTPException(404, "Config not found.")
+    try: return json.loads(config_json)
+    except Exception: raise HTTPException(500, "Config data corrupted.")
 
 @app.delete("/api/configs/{config_id}", status_code=200)
 async def delete_configuration(config_id: str): # ... (use await redis_client.delete, blob_delete) ...
     if not redis_client: raise HTTPException(503, "Storage unavailable.")
     config_id_with_prefix = config_id if config_id.startswith(CONFIG_KEY_PREFIX) else f"{CONFIG_KEY_PREFIX}{config_id}"
     log_filename = f"{LOG_FILENAME_PREFIX}{config_id_with_prefix}{LOG_FILENAME_SUFFIX}"
-    try: deleted_count = await redis_client.delete(config_id_with_prefix) # Delete from Redis
+    redis_deleted_count = 0
+    try: redis_deleted_count = await redis_client.delete(config_id_with_prefix)
     except Exception as e: logger.error(f"Redis delete error: {e}"); raise HTTPException(500,"Storage delete error (Redis)")
-    if deleted_count == 0: raise HTTPException(404, "Config not found in Redis.")
-    try: await blob_delete(pathname=log_filename, options={'token': vercel_blob_token}) # Delete log (best effort)
-    except Exception as blob_error: logger.warning(f"Failed to delete log file '{log_filename}': {blob_error}")
-    # Check if deleted config was the default
-    try:
-        current_default_id = await redis_client.get(DEFAULT_CONFIG_KEY)
-        if current_default_id == config_id_with_prefix:
-            await redis_client.delete(DEFAULT_CONFIG_KEY)
-            logger.info(f"Removed deleted config {config_id_with_prefix} as default.")
-    except Exception as e: logger.warning(f"Could not check/remove default config setting: {e}")
+    if redis_deleted_count == 0: raise HTTPException(404, "Config not found in Redis.")
+    try: await blob_delete(url=log_filename, token=vercel_blob_token) # Vercel blob expects url=pathname
+    except Exception as blob_error: logger.warning(f"Failed to delete log file '{log_filename}': {blob_error}") # Log but don't fail delete
+    try: current_default_id = await redis_client.get(DEFAULT_CONFIG_KEY);
+    except Exception as e: logger.warning(f"Could not check default key: {e}"); current_default_id = None
+    if current_default_id == config_id_with_prefix:
+        try: await redis_client.delete(DEFAULT_CONFIG_KEY); logger.info(f"Removed deleted config {config_id_with_prefix} as default.")
+        except Exception as e: logger.warning(f"Could not remove default key: {e}")
     logger.info(f"Deleted config '{config_id_with_prefix}'.")
     return {"message": "Configuration deleted successfully."}
 
