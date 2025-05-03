@@ -307,66 +307,55 @@ async def call_openai_stage4_reasoning(
     cognitive_states: CognitiveStateProbabilities, outcomes: Dict[str, float],
     graph: GraphStructure, user_perception: str, task_description: str
     ) -> str:
-    """Stage 4: Generate final reasoning explanation."""
+    """Stage 4: Generate final reasoning explanation (Using Faster Model)."""
     if not openai_client: return "Reasoning disabled: OpenAI client not available."
-    logger.info("Stage 4: Generating reasoning...")
+    logger.info("Stage 4: Generating reasoning (using gpt-3.5-turbo)...") # Log model change
 
-    # Format inputs
+    # ... (Keep persona_desc, ui_features_desc, cognitive_states_desc, outcomes_desc, node_descriptions formatting) ...
     persona_desc = "\n".join([f"- {f.alias or name}: {getattr(persona, name):.2f}" for name, f in persona.model_fields.items()])
     ui_features_desc = "\n".join([f"- {name}: {getattr(ui_features, name):.2f}" for name in ui_features.model_fields])
     cognitive_states_desc = "\n".join([f"- {name} ({f.alias or name}): {getattr(cognitive_states, name):.3f}" for name, f in cognitive_states.model_fields.items()])
     outcomes_desc = "\n".join([f"- {name}: {value:.3f}" for name, value in outcomes.items()])
-    _, node_descriptions, _, _, _, _ = get_dynamic_node_info(graph) # Get descriptions
+    _, node_descriptions, _, _, _, _ = get_dynamic_node_info(graph)
 
-    # --- *** FIX IS HERE: Assign prompts to variables *** ---
+    # Keep the simplified prompt from before
     system_message = """
     You are a UX analyst explaining a simulation of user cognition.
     Given: User Persona, Objective UI scores, Task, User Perception Summary, Estimated Cognitive States (IS1-6), Predicted Outcomes (O1-4).
-    Task: Provide detailed reasoning, explaining:
-    1. Briefly, how UI scores reflect the visual + task.
-    2. How Persona *interacted* with UI scores -> User Perception & Cognitive States (IS1-6). Reference specific inputs.
-    3. How Cognitive States -> Predicted Outcomes (O1-4). Reference specific IS nodes.
-    Be specific and link causes to effects based on standard UX principles. Use bullet points or structured paragraphs for clarity.
+    Task: Briefly explain the *key factors* influencing the main cognitive states (IS nodes) and the predicted outcomes (O nodes). Focus on the strongest interactions between persona and UI. Be concise.
     """
     user_message = f"""
     Simulation Context:
     Task: "{task_description}"
-    User Persona (P=1):
-    {persona_desc}
-    Objective UI Feature Scores (0-1):
-    {ui_features_desc}
-    User Perception Summary:
-    {user_perception}
-    Estimated Cognitive States (P=1):
-    {cognitive_states_desc}
-    Predicted Outcomes (P=1):
-    {outcomes_desc}
-    Node Descriptions:
-    {json.dumps(node_descriptions, indent=2)}
+    User Persona (P=1):\n{persona_desc}
+    Objective UI Feature Scores (0-1):\n{ui_features_desc}
+    User Perception Summary:\n{user_perception}
+    Estimated Cognitive States (P=1):\n{cognitive_states_desc}
+    Predicted Outcomes (P=1):\n{outcomes_desc}
+    Node Descriptions:\n{json.dumps(node_descriptions, indent=2)}
 
-    Please provide the detailed step-by-step reasoning for these results.
+    Provide a concise reasoning explaining the key influences on the cognitive states and outcomes.
     """
-    # --- *** END FIX *** ---
 
-    logger.debug("Sending reasoning prompt to OpenAI...")
+    logger.debug("Sending simplified reasoning prompt to OpenAI (gpt-3.5-turbo)...")
     try:
         response = await openai_client.chat.completions.create(
-            model="gpt-4o",
-            # Use the assigned variables here
+            # *** CHANGE MODEL HERE ***
+            model="gpt-3.5-turbo",
             messages=[
                 {"role": "system", "content": system_message},
                 {"role": "user", "content": user_message}
             ],
-            max_tokens=1000, # Allow longer reasoning
-            temperature=0.4,
+            # Keep max_tokens relatively low for speed
+            max_tokens=500,
+            temperature=0.3,
         )
         reasoning_text = response.choices[0].message.content.strip()
-        logger.info(f"Stage 4 Reasoning Output received.")
+        logger.info(f"Stage 4 Reasoning Output received (from gpt-3.5-turbo).")
         return reasoning_text
     except Exception as e:
-        logger.error(f"Stage 4 Reasoning Error: {e}", exc_info=True)
-        # Provide a more informative error message back
-        return f"Could not generate reasoning due to API error: {str(e)[:200]}..." # Limit error length
+        logger.error(f"Stage 4 Reasoning Error (gpt-3.5-turbo): {e}", exc_info=True)
+        return f"Could not generate reasoning due to API error: {str(e)[:200]}..."
 
 # --- Blob Logging ---
 async def log_data_to_blob(log_data: LogPayload, all_node_ids: List[str], ui_feature_ids: List[str]):
