@@ -293,12 +293,71 @@ def calculate_outcome_nodes(persona: PersonaInputs, cognitive_states: CognitiveS
     # ... (Keep existing implementation) ...
      logger.info("Stage 3: Calculating outcome nodes..."); o1 = 0.3*cognitive_states.IS2 + 0.4*cognitive_states.IS4 + 0.3*cognitive_states.IS5 - 0.3*cognitive_states.IS3; o2 = 0.2*cognitive_states.IS2 + 0.4*cognitive_states.IS4 + 0.4*cognitive_states.IS5 - 0.2*cognitive_states.IS3; o3 = 0.4*(1-cognitive_states.IS2) + 0.4*(1-cognitive_states.IS4) + 0.5*(1-cognitive_states.IS6); o4 = -0.3*persona.A6 + 0.3*cognitive_states.IS4 + 0.2*cognitive_states.IS5 + 0.4*cognitive_states.IS6; base = 0.1; outcomes = {"O1": max(0.0, min(1.0, base + o1)), "O2": max(0.0, min(1.0, base + o2)), "O3": max(0.0, min(1.0, base + o3)), "O4": max(0.0, min(1.0, base + o4))}; logger.info(f"Calculated Outcomes: {outcomes}"); return outcomes
 
-async def call_openai_stage4_reasoning(persona: PersonaInputs, ui_features: UiFeatures, cognitive_states: CognitiveStateProbabilities, outcomes: Dict[str, float], graph: GraphStructure, user_perception: str, task_description: str) -> str:
-    # ... (Keep existing implementation) ...
-    if not openai_client: return "Reasoning disabled."; logger.info("Stage 4: Generating reasoning..."); persona_desc = "\n".join([f"- {f.alias or name}: {getattr(persona, name):.2f}" for name, f in persona.model_fields.items()]); ui_features_desc = "\n".join([f"- {name}: {getattr(ui_features, name):.2f}" for name in ui_features.model_fields]); cognitive_states_desc = "\n".join([f"- {name} ({f.alias or name}): {getattr(cognitive_states, name):.3f}" for name, f in cognitive_states.model_fields.items()]); outcomes_desc = "\n".join([f"- {name}: {value:.3f}" for name, value in outcomes.items()]); _, node_descriptions, _, all_nodes, target_nodes, _ = get_dynamic_node_info(graph); system_prompt = """You are a UX analyst explaining a simulation. Given: User Persona, UI scores, Task, User Perception Summary, Cognitive States (IS1-6), Predicted Outcomes (O1-4). Task: Provide detailed reasoning: 1. How UI scores reflect visual+task. 2. How Persona *interacted* with UI -> Perception & Cognitive States (IS1-6). Ref specific inputs. 3. How Cognitive States -> Predicted Outcomes (O1-4). Ref specific IS nodes. Use bullet points or paragraphs."""; user_prompt = f"""Context:\nTask: "{task_description}"\nPersona (P=1):\n{persona_desc}\nUI Scores (0-1):\n{ui_features_desc}\nUser Perception:\n{user_perception}\nCognitive States (P=1):\n{cognitive_states_desc}\nOutcomes (P=1):\n{outcomes_desc}\nNode Descriptions:\n{json.dumps(node_descriptions, indent=2)}\n\nProvide detailed reasoning.""";
+async def call_openai_stage4_reasoning(
+    persona: PersonaInputs, ui_features: UiFeatures,
+    cognitive_states: CognitiveStateProbabilities, outcomes: Dict[str, float],
+    graph: GraphStructure, user_perception: str, task_description: str
+    ) -> str:
+    """Stage 4: Generate final reasoning explanation."""
+    if not openai_client: return "Reasoning disabled: OpenAI client not available."
+    logger.info("Stage 4: Generating reasoning...")
+
+    # Format inputs
+    persona_desc = "\n".join([f"- {f.alias or name}: {getattr(persona, name):.2f}" for name, f in persona.model_fields.items()])
+    ui_features_desc = "\n".join([f"- {name}: {getattr(ui_features, name):.2f}" for name in ui_features.model_fields])
+    cognitive_states_desc = "\n".join([f"- {name} ({f.alias or name}): {getattr(cognitive_states, name):.3f}" for name, f in cognitive_states.model_fields.items()])
+    outcomes_desc = "\n".join([f"- {name}: {value:.3f}" for name, value in outcomes.items()])
+    _, node_descriptions, _, _, _, _ = get_dynamic_node_info(graph) # Get descriptions
+
+    # --- *** FIX IS HERE: Assign prompts to variables *** ---
+    system_message = """
+    You are a UX analyst explaining a simulation of user cognition.
+    Given: User Persona, Objective UI scores, Task, User Perception Summary, Estimated Cognitive States (IS1-6), Predicted Outcomes (O1-4).
+    Task: Provide detailed reasoning, explaining:
+    1. Briefly, how UI scores reflect the visual + task.
+    2. How Persona *interacted* with UI scores -> User Perception & Cognitive States (IS1-6). Reference specific inputs.
+    3. How Cognitive States -> Predicted Outcomes (O1-4). Reference specific IS nodes.
+    Be specific and link causes to effects based on standard UX principles. Use bullet points or structured paragraphs for clarity.
+    """
+    user_message = f"""
+    Simulation Context:
+    Task: "{task_description}"
+    User Persona (P=1):
+    {persona_desc}
+    Objective UI Feature Scores (0-1):
+    {ui_features_desc}
+    User Perception Summary:
+    {user_perception}
+    Estimated Cognitive States (P=1):
+    {cognitive_states_desc}
+    Predicted Outcomes (P=1):
+    {outcomes_desc}
+    Node Descriptions:
+    {json.dumps(node_descriptions, indent=2)}
+
+    Please provide the detailed step-by-step reasoning for these results.
+    """
+    # --- *** END FIX *** ---
+
+    logger.debug("Sending reasoning prompt to OpenAI...")
     try:
-        response = await openai_client.chat.completions.create(model="gpt-4o", messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}], max_tokens=1000, temperature=0.4); reasoning_text = response.choices[0].message.content.strip(); logger.info(f"Stage 4 Reasoning Output received."); return reasoning_text
-    except Exception as e: logger.error(f"Stage 4 Reasoning Error: {e}", exc_info=True); return f"Could not generate reasoning: {e}"
+        response = await openai_client.chat.completions.create(
+            model="gpt-4o",
+            # Use the assigned variables here
+            messages=[
+                {"role": "system", "content": system_message},
+                {"role": "user", "content": user_message}
+            ],
+            max_tokens=1000, # Allow longer reasoning
+            temperature=0.4,
+        )
+        reasoning_text = response.choices[0].message.content.strip()
+        logger.info(f"Stage 4 Reasoning Output received.")
+        return reasoning_text
+    except Exception as e:
+        logger.error(f"Stage 4 Reasoning Error: {e}", exc_info=True)
+        # Provide a more informative error message back
+        return f"Could not generate reasoning due to API error: {str(e)[:200]}..." # Limit error length
 
 # --- Blob Logging ---
 async def log_data_to_blob(log_data: LogPayload, all_node_ids: List[str], ui_feature_ids: List[str]):
