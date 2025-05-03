@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>UI-Aware Cognitive Simulation</title> <!-- Updated Title -->
+    <title>UI-Aware Cognitive Simulation</title>
     <link rel="stylesheet" href="style.css">
 
     <!-- Core Libs -->
@@ -28,7 +28,7 @@
             <h1>UI-Aware Cognitive Simulation</h1>
         </header>
         <main>
-            <!-- NEW: UI/Task Input Section -->
+            <!-- 1. UI & Task Context (Remains First) -->
             <div class="ui-task-input-section">
                 <h2>1. UI & Task Context</h2>
                 <div>
@@ -47,31 +47,21 @@
                  </div>
             </div>
 
-             <!-- NEW: User Perception Summary -->
-             <div class="user-perception-section">
-                 <h2>2. Predicted User Perception</h2>
-                  <div id="user-perception-summary">
-                       <p>Run full simulation after UI Analysis and setting Persona Inputs...</p>
-                  </div>
-             </div>
-
-             <!-- Persona Inputs Section -->
-            <div class="input-section"> <!-- Renamed from "Inputs" -->
-                <h2>3. User Persona Inputs (0-1)</h2>
+             <!-- 2. User Persona Inputs (Now Second) -->
+            <div class="input-section">
+                <h2>2. User Persona Inputs (0-1)</h2>
                 <div id="persona-input-controls-container">
                     <!-- Persona inputs (A1-A6, H) will be added here -->
                      <p>Loading default persona...</p>
                 </div>
-                <!-- Gradient toggle can stay if desired -->
                  <label for="gradient-toggle">Node Gradient Colors:</label>
                  <input type="checkbox" id="gradient-toggle" checked>
             </div>
 
-
-             <!-- Graph Editor Section -->
+            <!-- 3. Cognitive Network Simulation (Now Third) -->
             <div class="graph-editor">
-                <h2>4. Cognitive Network Simulation</h2>
-                 <p> <!-- Instructions -->
+                <h2>3. Cognitive Network Simulation</h2>
+                 <p>
                     <b>Right-click canvas:</b> Add Input/Hidden node.<br>
                     <b>Right-click node:</b> Convert type, Delete, Start edge (then left-click target).<br>
                     <b>Right-click edge:</b> Delete edge.<br>
@@ -82,32 +72,19 @@
                 <p id="predict-status" class="status-message"></p>
             </div>
 
-            <!-- Configuration Section -->
-            <div class="config-section">
-                <h2>Network Configuration</h2>
-                <div class="config-controls">
-                    <label for="config-name">Save As:</label>
-                    <input type="text" id="config-name" placeholder="Configuration name">
-                    <button id="save-config-button" title="Save current graph structure">Save</button>
-                </div>
-                 <div class="config-controls">
-                     <label for="load-config-select">Load/Manage:</label>
-                     <select id="load-config-select">
-                         <option value="">Select a configuration</option>
-                     </select>
-                     <button id="load-config-button" title="Load selected config">Load</button>
-                     <button id="set-default-button" title="Set selected as default on load">Set Default</button>
-                     <button id="delete-config-button" title="Delete selected config">Delete</button>
-                 </div>
-                <p>Current Config: <strong id="current-config-name">None</strong></p>
-                <p id="config-status" class="status-message">Initializing...</p>
-            </div>
+             <!-- 4. Predicted User Perception (Now Fourth) -->
+             <div class="user-perception-section">
+                 <h2>4. Predicted User Perception</h2>
+                  <div id="user-perception-summary">
+                       <p>Run full simulation after UI Analysis and setting Persona Inputs...</p>
+                  </div>
+             </div>
 
-            <!-- Output/Reasoning Section -->
+
+            <!-- 5. LLM Reasoning (Remains Fifth) -->
             <div class="output-section">
                 <h2>5. LLM Reasoning</h2>
                 <div id="llm-reasoning-content">Run full simulation to see reasoning.</div>
-                <!-- Context moved to separate section if needed, or keep as is -->
                 <details>
                     <summary>Show Debug Context (Inputs/Outputs)</summary>
                      <div id="debug-context">
@@ -116,7 +93,7 @@
                 </details>
             </div>
 
-            <!-- Log Section -->
+            <!-- Logging (Remains Last) -->
             <div class="log-section">
                 <h2>Logging</h2>
                 <p id="log-count">Log entries this session: 0</p>
