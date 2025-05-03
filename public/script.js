@@ -401,91 +401,145 @@ async function analyzeUI() {
 // --- NEW: Run Full Simulation Function ---
 async function runFullSimulation() {
     // 1. Check prerequisites
-    if (!currentConfig || !currentConfig.graph_structure || !currentConfig.graph_structure.nodes.length === 0) { alert("Load or define a graph configuration first."); return; }
+    if (!currentConfig || !currentConfig.graph_structure || !currentConfig.graph_structure.nodes.length === 0) { alert("Load or define graph config first."); return; }
     if (!cy) { alert("Graph library not ready."); return; }
-    if (!currentUiFeatures) { alert("Please analyze a UI image first using the 'Analyze UI' button."); return; }
+    if (!currentUiFeatures) { alert("Please analyze UI image first."); return; }
 
     setStatusMessage('predict-status', "Gathering persona inputs...", "loading");
 
     // 2. Gather Persona Inputs
     const personaInputValues = {};
-    const personaNodes = ["A1", "A2", "A3", "A4", "A5", "A6", "H"]; // Expected persona node IDs
+    const personaNodes = ["A1", "A2", "A3", "A4", "A5", "A6", "H"];
     let hasInvalidInput = false;
     personaNodes.forEach(nodeId => {
         const inputElement = document.getElementById(`input-${nodeId}`);
         const inputContainer = inputElement?.parentElement;
+        let value = 0.5; // Default
         if (inputElement) {
-            const value = parseFloat(inputElement.value);
+            value = parseFloat(inputElement.value);
             if (isNaN(value) || value < 0 || value > 1) {
                  setStatusMessage('predict-status', `Invalid input for ${nodeId}. Use 0-1.`, "error");
                  if(inputContainer) inputContainer.classList.add('invalid-input');
                  hasInvalidInput = true;
              } else {
                  if(inputContainer) inputContainer.classList.remove('invalid-input');
-                 personaInputValues[nodeId] = value;
              }
-        } else {
-             console.warn(`Input element for persona node ${nodeId} not found. Using default 0.5`);
-             personaInputValues[nodeId] = 0.5; // Default if element is missing (e.g., 'H' if optional)
-        }
+        } else { console.warn(`Input for ${nodeId} not found, using default.`); }
+        personaInputValues[nodeId] = isNaN(value) ? 0.5 : Math.max(0, Math.min(1, value));
     });
-    if(hasInvalidInput) { return; } // Stop if input is invalid
+    if(hasInvalidInput) { return; }
 
-    // 3. Prepare Payload for the *new* backend endpoint
-    const payload = {
-        persona_inputs: personaInputValues, // Send the collected values
-        ui_features: currentUiFeatures,    // Send the results from UI analysis
+    // 3. Prepare Payload for the *first* backend call (Stages 2 & 3)
+    const payload_stage23 = {
+        persona_inputs: personaInputValues,
+        ui_features: currentUiFeatures,
         graph_structure: currentConfig.graph_structure,
         config_id: currentConfig.id,
         config_name: currentConfig.name
     };
 
-    // 4. Call Backend for Full Simulation
-    setStatusMessage('predict-status', "Running full simulation (Stages 2-4)...", "loading");
+    // 4. Call Backend for Cognitive State Prediction
+    setStatusMessage('predict-status', "Running simulation (Stages 2-3)...", "loading");
     showSpinner(true);
     enableUI(false);
-    clearLLMOutputs(); // Clear previous reasoning/perception display
+    clearLLMOutputs(); // Clear previous results
 
+    let simulationResult_stage23; // To store result from first call
     try {
-        let simulationResult;
         await retryFetch(async () => {
-            const response = await fetch('/api/predict_full_simulation', { // Call the NEW endpoint
+            const response = await fetch('/api/predict_cognitive_state', { // Call the MODIFIED endpoint
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
+                body: JSON.stringify(payload_stage23)
             });
-            simulationResult = await response.json();
+            simulationResult_stage23 = await response.json();
             if (!response.ok) {
-                throw new Error(simulationResult.detail || `HTTP error ${response.status}`);
+                throw new Error(simulationResult_stage23.detail || `HTTP error ${response.status}`);
             }
         }, 3, () => setStatusMessage('predict-status', "Simulation failed. Retrying...", "error"));
 
-        // 5. Update UI with results
-        updateNodeProbabilities(simulationResult.probabilities);    // Update graph nodes
-        displayUserPerception(simulationResult.user_perception_summary); // Display perception text
-        displayLLMReasoning(simulationResult.llm_reasoning);        // Display reasoning text
-        displayDebugContext(simulationResult.debug_context);        // Display debug info
-        setStatusMessage('predict-status', "Simulation complete.", "success");
+        // 5. Update UI with IMMEDIATE results (Probs, Perception)
+        updateNodeProbabilities(simulationResult_stage23.probabilities);
+        displayUserPerception(simulationResult_stage23.user_perception_summary);
+        // Keep objective scores displayed
+        displayObjectiveUIScores(simulationResult_stage23.ui_features);
+        // Clear reasoning area for now, show loading message
+        const reasonEl = document.getElementById('llm-reasoning-content');
+        if (reasonEl) reasonEl.textContent = 'Generating reasoning...';
+        setStatusMessage('predict-status', "Simulation stages 2-3 complete. Fetching reasoning...", "loading"); // Update status
 
-        // 6. Log the results (including UI features, perception, reasoning)
+        // 6. Log the results available now (WITHOUT reasoning)
         logPrediction(
             personaInputValues,
-            simulationResult.ui_features, // Pass UI features
-            simulationResult.probabilities, // Pass node probabilities (already flattened in backend ideally, but handle here if needed)
-            simulationResult.user_perception_summary,
-            simulationResult.llm_reasoning
+            simulationResult_stage23.ui_features,
+            simulationResult_stage23.probabilities,
+            simulationResult_stage23.user_perception_summary,
+            "" // Log empty reasoning initially
         );
 
+        // 7. Trigger Asynchronous Reasoning Call (Stage 4)
+        // Prepare payload for reasoning endpoint
+        const reasoningPayload = {
+             persona_inputs: personaInputValues,
+             ui_features: simulationResult_stage23.ui_features,
+             cognitive_states_est: simulationResult_stage23.cognitive_states_est_data, // Use data returned from first call
+             outcomes_calc: simulationResult_stage23.outcomes_calc_data,             // Use data returned from first call
+             graph_structure: currentConfig.graph_structure,
+             user_perception_summary: simulationResult_stage23.user_perception_summary,
+             task_description: document.getElementById('task-description')?.value || "N/A" // Get task desc again
+        };
+
+        // Call the new reasoning endpoint (no retry needed here, non-critical)
+        fetchReasoning(reasoningPayload); // Call async function without awaiting here
+
+
     } catch (error) {
-        console.error("Full Simulation Error:", error);
+        console.error("Simulation Error (Stages 2-3):", error);
         setStatusMessage('predict-status', `Simulation failed: ${error.message}`, "error");
         clearLLMOutputs(); // Clear outputs on error
-    } finally {
-        enableUI(true);
+        enableUI(true); // Re-enable UI on failure
         showSpinner(false);
     }
+     // Note: enableUI(true) and showSpinner(false) are called within fetchReasoning or on error
 }
 
+async function fetchReasoning(payload) {
+    console.log("Requesting reasoning generation...");
+    // Intentionally keep UI enabled, only show reasoning status update
+    const reasonEl = document.getElementById('llm-reasoning-content');
+    if (reasonEl) reasonEl.textContent = 'Generating reasoning... (may take time)';
+
+    try {
+       const response = await fetch('/api/generate_reasoning', { // Call NEW endpoint
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const reasoningResult = await response.json();
+        if (!response.ok) {
+            throw new Error(reasoningResult.detail || `HTTP error ${response.status}`);
+        }
+
+        // Update reasoning display when done
+        displayLLMReasoning(reasoningResult.llm_reasoning);
+        setStatusMessage('predict-status', "Simulation and reasoning complete.", "success"); // Final success message
+        console.log("Reasoning received.");
+
+        // Optional: Update the last log entry with the reasoning? (More complex state management)
+        // if (sessionLog.length > 0) {
+        //     sessionLog[sessionLog.length - 1].llmReasoning = reasoningResult.llm_reasoning;
+        // }
+
+    } catch (error) {
+        console.error("Reasoning Generation Error:", error);
+        setStatusMessage('predict-status', `Simulation complete, but reasoning failed: ${error.message}`, "error");
+        if (reasonEl) reasonEl.textContent = `Reasoning failed: ${error.message}`;
+    } finally {
+       // Ensure UI is enabled and spinner off after reasoning attempt (success or fail)
+       enableUI(true);
+       showSpinner(false);
+    }
+}
 
 // --- Initialize UI (MODIFIED) ---
 function initializeUI() {
