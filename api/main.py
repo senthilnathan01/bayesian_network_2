@@ -356,7 +356,7 @@ async def call_openai_stage4_reasoning(
     except Exception as e:
         logger.error(f"Stage 4 Reasoning Error (gpt-3.5-turbo): {e}", exc_info=True)
         return f"Could not generate reasoning due to API error: {str(e)[:200]}..."
-
+    
 # --- Blob Logging ---
 async def log_data_to_blob(log_data: LogPayload, all_node_ids: List[str], ui_feature_ids: List[str]):
     # ... (Keep existing implementation - checked for correctness) ...
