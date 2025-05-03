@@ -23,5 +23,10 @@
       "src": "/(.*)",
       "dest": "/public/$1"
     }
-  ]
+  ],
+  "functions": {
+    "app/api/example/*": {
+      "maxDuration": 55
+    }
+  }
 }
