@@ -1,28 +1,28 @@
-import sys
-import os
-import json
-import logging
-from typing import Dict, Any, List, Optional, Set, Tuple
-from uuid import uuid4
-import urllib.parse
-from datetime import datetime
-import io
-import csv
-import aiohttp
-from aiohttp import ClientTimeout
+import sys  # Provides access to system-specific parameters and functions
+import os  # Provides functions for interacting with the operating system
+import json  # Provides methods for working with JSON data
+import logging  # Provides a flexible framework for emitting log messages
+from typing import Dict, Any, List, Optional, Set, Tuple  # Provides type hints for better code clarity and type checking
+from uuid import uuid4  # Generates universally unique identifiers (UUIDs)
+import urllib.parse  # Provides functions for parsing and manipulating URLs
+from datetime import datetime, timezone  # Provides classes for working with dates and times, including timezone support
+import io  # Provides tools for working with streams (e.g., in-memory file-like objects)
+import csv  # Provides tools for reading and writing CSV files
+import aiohttp  # Provides asynchronous HTTP client functionality
+from aiohttp import ClientTimeout  # Allows setting timeouts for HTTP requests
 
 print("--- DEBUG: api/main.py TOP LEVEL EXECUTION ---", flush=True)
 
 try:
-    from fastapi import FastAPI, HTTPException, Body, Response
-    from fastapi.middleware.cors import CORSMiddleware
-    from fastapi.responses import StreamingResponse
-    from pydantic import BaseModel, Field, validator
-    from openai import AsyncOpenAI
-    from dotenv import load_dotenv
-    import redis
-    from redis.connection import ConnectionPool
-    from vercel_blob import put as blob_put, head as blob_head, delete as blob_delete
+    from fastapi import FastAPI, HTTPException, Body, Response  # FastAPI framework for building APIs, HTTP exceptions, and request/response handling
+    from fastapi.middleware.cors import CORSMiddleware  # Middleware to enable Cross-Origin Resource Sharing (CORS)
+    from fastapi.responses import StreamingResponse  # Provides support for streaming responses
+    from pydantic import BaseModel, Field, validator  # Pydantic for data validation and settings management
+    from openai import AsyncOpenAI  # OpenAI client for interacting with OpenAI APIs
+    from dotenv import load_dotenv  # Loads environment variables from a .env file
+    import redis  # Redis client for interacting with a Redis database
+    from redis.connection import ConnectionPool  # Manages connection pooling for Redis
+    from vercel_blob import put as blob_put, head as blob_head, delete as blob_delete  # Vercel Blob API for file storage and management
     print("--- DEBUG: Imported FastAPI, CORS, Pydantic, OpenAI, Redis, Vercel Blob, aiohttp ---", flush=True)
 
     app = FastAPI(title="Dynamic Bayesian Network API")
@@ -361,7 +361,7 @@ async def call_openai_for_reasoning(input_states: Dict[str, float], graph: Graph
                 {"role": "system", "content": system_message},
                 {"role": "user", "content": user_message}
             ],
-            max_tokens=600,
+            max_tokens=800,
             temperature=0.3,
             n=1
         )
@@ -534,174 +534,236 @@ async def set_default_configuration(config_id: str = Body(...)):
 
 @app.post("/api/predict_openai_bn_single_call")
 async def predict_openai_bn_single_call(payload: PredictionPayload):
+    """ Runs prediction: validates graph, calls LLM for probs & reasoning, logs result. """
     logger.info("Entered prediction endpoint.")
     try:
+        # 1. Validate graph structure
         is_valid_dag, cycle_info = is_dag(payload.graph_structure)
         if not is_valid_dag:
             raise HTTPException(status_code=400, detail=f"Invalid graph: Not a DAG. {cycle_info or ''}")
 
+        # Get node info early for logging and response prep
+        node_parents, node_descriptions, _, all_nodes, target_nodes, input_nodes = get_dynamic_node_info(payload.graph_structure)
+
+        # 2. Get Probabilities
         logger.info("Calling OpenAI for probabilities...")
         estimated_target_probs = await call_openai_for_probabilities(payload.input_values, payload.graph_structure)
-        logger.info("Calling OpenAI for reasoning...")
-        reasoning_text = await call_openai_for_reasoning(payload.input_values, payload.graph_structure, estimated_target_probs)
-        all_current_probabilities = {**payload.input_values, **estimated_target_probs}
-        _, node_descriptions, _, all_nodes, _, _ = get_dynamic_node_info(payload.graph_structure)
-        final_result_probs = {}
-        for node in all_nodes:
-            node_desc = node_descriptions.get(node, node)
-            p1 = all_current_probabilities.get(node, 0.5)
-            p1_clamped = max(0.0, min(1.0, p1))
-            final_result_probs[node] = {"0": 1.0 - p1_clamped, "1": p1_clamped, "description": node_desc}
 
+        # 3. Get Reasoning
+        logger.info("Calling OpenAI for reasoning...")
+        # Combine inputs and estimates for reasoning prompt context
+        reasoning_prob_context = {**payload.input_values, **estimated_target_probs}
+        reasoning_text = await call_openai_for_reasoning(payload.input_values, payload.graph_structure, reasoning_prob_context)
+
+        # 4. Combine results for final response
+        all_current_probabilities = {**payload.input_values, **estimated_target_probs}
+        final_result_probs = {}
+        log_probs_p1 = {} # Prepare flattened P(1) for logging
+        for node_id in all_nodes: # Iterate through ALL nodes in the graph structure
+            node_desc = node_descriptions.get(node_id, node_id)
+            p1 = all_current_probabilities.get(node_id, 0.5) # Default if somehow missing
+            p1_clamped = max(0.0, min(1.0, p1))
+            final_result_probs[node_id] = {"0": 1.0 - p1_clamped, "1": p1_clamped, "description": node_desc}
+            log_probs_p1[node_id] = p1_clamped # Store P(1) for logging
+
+        # 5. Prepare response payload
         response_payload = {
             "probabilities": final_result_probs,
             "llm_reasoning": reasoning_text,
-            "llm_context": {
-                "input_states": [
-                    {
-                        "node": n,
-                        "description": node_descriptions.get(n, n),
-                        "value": v,
-                        "state": "High" if v >= 0.66 else ("Medium" if v >= 0.33 else "Low")
-                    } for n, v in payload.input_values.items()
-                ],
-                "node_dependencies": {
-                    node.id: [e.source for e in payload.graph_structure.edges if e.target == node.id]
-                    for node in payload.graph_structure.nodes
-                },
-                "node_descriptions": {n.id: n.fullName for n in payload.graph_structure.nodes}
-            }
+            "llm_context": { # Context provided TO the LLM (for display/debug)
+                 "input_states": [{ "node": n, "description": node_descriptions.get(n, n), "value": v, "state": ("High" if v >= 0.66 else ("Medium" if v >= 0.33 else "Low")) } for n,v in payload.input_values.items() if n in input_nodes], # Show only actual inputs used
+                 "node_dependencies": node_parents,
+                 "node_descriptions": node_descriptions
+             }
         }
 
-        log_probs = {node_id: data["1"] for node_id, data in final_result_probs.items()}
+        # 6. Log the prediction (pass the full list of nodes for header consistency)
         log_entry = LogPayload(
-            timestamp=datetime.utcnow().isoformat() + "Z",
+            timestamp=datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'), # Use UTC timestamp
             configId=payload.config_id or "unknown",
             configName=payload.config_name or "Unknown",
-            probabilities=log_probs
+            probabilities=log_probs_p1 # Use the flattened P(1) dict
         )
         try:
-            logger.info("Attempting to log prediction to blob...")
-            await log_data_to_blob(log_entry)
-            logger.info("Prediction logged successfully.")
-        except Exception as e:
-            logger.warning(f"Failed to log prediction: {e}. Continuing without logging.")
+            logger.info(f"Attempting to log prediction to blob for configId: {log_entry.configId}")
+            # *** Pass `all_nodes` list here ***
+            await log_data_to_blob(log_entry, all_nodes)
+            logger.info("Logging successful (or skipped for unsaved/default).")
+        except Exception as log_err:
+            # Log the error but don't fail the main prediction request
+            logger.error(f"Failed to log prediction data: {log_err}", exc_info=True)
 
         logger.info("Prediction completed successfully.")
         return response_payload
-    except HTTPException as e:
-        logger.error(f"HTTPException in prediction: {e.detail}", exc_info=True)
-        raise e
-    except Exception as e:
-        logger.error(f"Unexpected error in prediction: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
-async def log_data_to_blob(log_entry: LogPayload):
+    except HTTPException as e: # Handle specific HTTP errors cleanly
+        logger.error(f"HTTPException in prediction: {e.detail}", exc_info=False) # Log detail without full stack for HTTP known errors
+        raise e
+    except Exception as e: # Catch unexpected errors
+        logger.error(f"Unexpected error in prediction: {e}", exc_info=True) # Log full stack trace
+        raise HTTPException(status_code=500, detail=f"Internal server error during prediction.")
+
+async def log_data_to_blob(log_entry: LogPayload, all_node_ids_in_graph: List[str]):
+    """Appends log data (one row per prediction) to a CSV file in Vercel Blob."""
     if not vercel_blob_token:
         logger.warning("BLOB_READ_WRITE_TOKEN not configured. Skipping log.")
         return
+    # Do not log for unsaved ('unknown') or the default config
     if not log_entry.configId or log_entry.configId == "unknown" or log_entry.configId == "default-config-001":
-        logger.warning(f"Skipping log for unsaved/default config: {log_entry.configId}")
-        return
+         logger.info(f"Skipping persistent log for configId: {log_entry.configId}")
+         return # Don't log for unsaved or default configs
 
+    # Use the config ID (which includes prefix) in the filename
     log_filename = f"{LOG_FILENAME_PREFIX}{log_entry.configId}{LOG_FILENAME_SUFFIX}"
-    logger.info(f"Logging to blob: {log_filename}")
+    logger.info(f"Attempting to log to blob: {log_filename}")
 
-    new_rows = [
-        [log_entry.timestamp, log_entry.configId, log_entry.configName, node_id, f"{prob_p1:.4f}"]
-        for node_id, prob_p1 in log_entry.probabilities.items()
+    # --- Prepare the single data row for this prediction ---
+    # Use all_node_ids_in_graph passed from the prediction context for consistent ordering
+    sorted_node_ids = sorted(all_node_ids_in_graph) # Ensure consistent order
+
+    # Create the data row, getting values from the log_entry probabilities
+    # Use empty string if a node from the graph structure wasn't in this prediction's results
+    data_row = [
+        log_entry.timestamp,
+        log_entry.configId,
+        log_entry.configName,
     ]
+    for node_id in sorted_node_ids:
+        prob_p1 = log_entry.probabilities.get(node_id) # Get P(1) if exists
+        data_row.append(f"{prob_p1:.4f}" if isinstance(prob_p1, float) else "") # Format or leave blank
 
-    if not new_rows:
-        logger.warning("No data rows to log.")
+    if not data_row: # Should not happen if timestamp etc. are present
+        logger.warning("No data generated for log row.")
         return
 
+    # --- Handle File Writing (Check Existence, Headers, Append) ---
     try:
+        existing_content = b""
         needs_headers = False
         try:
-            await blob_head(pathname=log_filename, options={'token': vercel_blob_token})
-        except Exception:
-            needs_headers = True
-            logger.info(f"Log file {log_filename} does not exist. Will create with headers.")
+            # Check if file exists
+            logger.debug(f"Checking existence of blob: {log_filename}")
+            head_result = await blob_head(pathname=log_filename, options={'token': vercel_blob_token})
+            logger.debug(f"Blob {log_filename} exists (size: {head_result.get('size', 'N/A')}). Fetching content...")
+            # If exists, download content to append to
+            blob_response = await aiohttp.ClientSession().get(head_result['url']) # Use head result url
+            if blob_response.status == 200:
+                existing_content = await blob_response.read()
+                if existing_content.endswith(b'\n'): # Remove trailing newline for cleaner append
+                    existing_content = existing_content[:-1]
+                logger.debug(f"Read {len(existing_content)} bytes from existing log.")
+            else:
+                 logger.warning(f"Could not read existing log {log_filename} (Status: {blob_response.status}). Will overwrite.")
+                 needs_headers = True # Treat as new if cannot read
+            await blob_response.release() # Close connection
 
+        except Exception as head_or_download_error:
+            # If head fails (likely 404 Not Found), it means the file doesn't exist
+            logger.info(f"Log file {log_filename} not found or error accessing ({head_or_download_error}). Will create with headers.")
+            needs_headers = True
+
+        # --- Build the final CSV content ---
         output = io.StringIO()
         writer = csv.writer(output)
 
-        existing_content = b""
-        if not needs_headers:
-            try:
-                put_result = await blob_head(pathname=log_filename, options={'token': vercel_blob_token})
-                blob_url = put_result.get('url')
-                if not blob_url:
-                    logger.warning(f"No URL returned for {log_filename}. Treating as new file.")
-                    needs_headers = True
-                else:
-                    async with aiohttp.ClientSession(timeout=ClientTimeout(total=3)) as session:
-                        async with session.get(blob_url) as response:
-                            if response.status != 200:
-                                logger.warning(f"Failed to fetch {log_filename}: HTTP {response.status}")
-                                needs_headers = True
-                            else:
-                                existing_content = await response.read()
-                                if existing_content.endswith(b'\n'):
-                                    existing_content = existing_content[:-1]
-            except Exception as e:
-                logger.warning(f"Could not retrieve {log_filename}: {e}")
-                needs_headers = True
-                existing_content = b""
-
-        if existing_content:
-            output.write(existing_content.decode('utf-8'))
-            output.write('\n')
-
+        # Write headers ONLY if file is new
         if needs_headers:
-            writer.writerow(CSV_HEADERS)
+            # Create headers based on the nodes in the *current graph structure*
+            headers = ['Timestamp', 'ConfigID', 'ConfigName'] + sorted_node_ids
+            writer.writerow(headers)
+            logger.info("Writing headers for new log file.")
 
-        writer.writerows(new_rows)
+        # Append existing content (if any)
+        if existing_content:
+             # Write existing content, ensuring a newline before the new row
+             output.write(existing_content.decode('utf-8'))
+             output.write('\n')
+
+        # Write the new data row
+        writer.writerow(data_row)
+
+        # --- Upload the final content (overwrite existing blob) ---
         final_csv_content = output.getvalue().encode('utf-8')
         output.close()
 
+        logger.debug(f"Uploading {len(final_csv_content)} bytes to {log_filename}...")
         put_result = await blob_put(
             pathname=log_filename,
             body=final_csv_content,
-            options={'access': 'public', 'add_random_suffix': False, 'content_type': 'text/csv', 'token': vercel_blob_token}
+            options={'access': 'public', 'add_random_suffix': False, 'contentType': 'text/csv', 'token': vercel_blob_token}
         )
-        logger.info(f"Appended {len(new_rows)} entries to {log_filename} at {put_result['url']}")
+        logger.info(f"Successfully wrote log data to: {log_filename} (URL: {put_result.get('url', 'N/A')})")
+
     except Exception as e:
-        logger.error(f"Failed to log to {log_filename}: {e}", exc_info=True)
-        raise e
+        logger.error(f"Failed to put/append log data to blob {log_filename}: {e}", exc_info=True)
 
 @app.get("/api/download_log/{config_id}")
 async def download_log_file(config_id: str):
-    if not vercel_blob_token:
-        raise HTTPException(status_code=500, detail="BLOB_READ_WRITE_TOKEN not configured")
-    if not config_id or config_id == "unknown" or config_id == "default-config-001":
-        raise HTTPException(status_code=400, detail="Cannot download logs for unsaved/default configs.")
+    """Downloads the full log CSV for a specific config ID from Vercel Blob."""
+    if not vercel_blob_token: raise HTTPException(status_code=500, detail="BLOB_READ_WRITE_TOKEN not configured")
+    if not config_id or config_id == "unknown" or config_id == "default-config-001": raise HTTPException(status_code=400, detail="Cannot download logs for unsaved/default configs.")
 
     config_id_with_prefix = config_id if config_id.startswith(CONFIG_KEY_PREFIX) else f"{CONFIG_KEY_PREFIX}{config_id}"
     log_filename = f"{LOG_FILENAME_PREFIX}{config_id_with_prefix}{LOG_FILENAME_SUFFIX}"
-    logger.info(f"Downloading log: {log_filename}")
+    logger.info(f"Attempting to download log file: {log_filename}")
 
     try:
-        put_result = await blob_head(pathname=log_filename, options={'token': vercel_blob_token})
-        blob_url = put_result.get('url')
+        # Use blob_head to get the actual URL (more reliable than assuming structure)
+        head_result = await blob_head(pathname=log_filename, options={'token': vercel_blob_token})
+        blob_url = head_result.get('url')
         if not blob_url:
-            raise HTTPException(status_code=404, detail=f"No URL found for log file {log_filename}")
-        async with aiohttp.ClientSession(timeout=ClientTimeout(total=3)) as session:
-            async with session.get(blob_url) as response:
-                if response.status != 200:
-                    raise HTTPException(status_code=404, detail=f"Failed to fetch log file: HTTP {response.status}")
-                content = await response.read()
+            logger.error(f"Blob head succeeded but no URL found for {log_filename}")
+            raise HTTPException(status_code=404, detail=f"Log file metadata found, but URL is missing.")
+
+        # Stream the content from the blob URL
+        async def stream_content():
+            try:
+                 # Increased timeout slightly
+                async with aiohttp.ClientSession(timeout=ClientTimeout(total=10)) as session:
+                    async with session.get(blob_url) as response:
+                        if response.status == 200:
+                            while True:
+                                chunk = await response.content.read(8192) # Read in chunks
+                                if not chunk:
+                                    break
+                                yield chunk
+                        elif response.status == 404:
+                             logger.warning(f"Log file URL returned 404: {blob_url}")
+                             raise HTTPException(status_code=404, detail=f"Log file not found at storage URL.")
+                        else:
+                             error_text = await response.text()
+                             logger.error(f"Failed to fetch log file content from {blob_url}: HTTP {response.status} - {error_text}")
+                             raise HTTPException(status_code=response.status, detail=f"Error fetching log file content.")
+            except Exception as stream_err:
+                 logger.error(f"Error streaming log file {log_filename}: {stream_err}", exc_info=True)
+                 # Yield an error message in the stream? Or just let it fail?
+                 # For now, let the exception propagate to the main try/except
+                 raise stream_err
+
+
         safe_filename_part = config_id_with_prefix.replace(CONFIG_KEY_PREFIX, "")
         download_filename = f"log_{safe_filename_part}.csv"
+
         return StreamingResponse(
-            io.BytesIO(content),
+            stream_content(), # Stream the response body
             media_type='text/csv',
             headers={'Content-Disposition': f'attachment; filename="{download_filename}"'}
         )
+
     except Exception as e:
-        logger.error(f"Failed to download {log_filename}: {e}", exc_info=True)
-        raise HTTPException(status_code=404, detail=f"Log file not found for config ID {config_id}")
+        # Catch errors from blob_head or potential streaming errors
+        err_str = str(e)
+        # Check if it's a likely "Not Found" error from blob_head
+        if "NotFound" in err_str or "not found" in err_str.lower() or (isinstance(e, HTTPException) and e.status_code == 404):
+             logger.warning(f"Log file not found: {log_filename}")
+             raise HTTPException(status_code=404, detail=f"Log file not found for config ID {config_id}")
+        else:
+             logger.error(f"Failed to download log file {log_filename}: {e}", exc_info=True)
+             # Raise a generic 500 if it wasn't a clear 404 or HTTP error from streaming
+             if isinstance(e, HTTPException):
+                 raise e
+             else:
+                 raise HTTPException(status_code=500, detail=f"Failed to download log file.")
 
 @app.get("/")
 async def root():
