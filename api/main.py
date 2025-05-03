@@ -18,7 +18,7 @@ try:
     from fastapi import FastAPI, HTTPException, Body, Response, UploadFile, File, Form
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import StreamingResponse
-    from pydantic import BaseModel, Field, validator
+    from pydantic import BaseModel, Field, field_field_validator, ConfigDict
     from openai import AsyncOpenAI # Use Async client
     from dotenv import load_dotenv
     import redis
@@ -144,65 +144,27 @@ async def ping(): # ... (keep existing ping) ...
 # --- CORRECTED/ROBUST Default Config Endpoint ---
 @app.get("/api/configs/default", response_model=Dict[str, Any])
 async def get_default_configuration():
-    """
-    Returns the default graph configuration.
-    Tries to load a user-defined default from Redis first,
-    otherwise falls back to the hardcoded structure.
-    """
+    # ... (Keep corrected version from previous response) ...
     logger.info("Attempting to serve default configuration...")
-    config_to_return = None # Variable to hold the final config
-
-    # --- Try loading user-defined default from Redis ---
+    config_to_return = None
     if redis_client:
         try:
-            # Check connection first (optional, but good practice)
-            await redis_client.ping()
-            logger.debug("Redis connection OK for default config check.")
-
-            # 1. Get the ID stored as the default
+            await redis_client.ping(); logger.debug("Redis connection OK.")
             default_config_id = await redis_client.get(DEFAULT_CONFIG_KEY)
-
             if default_config_id:
-                logger.info(f"User-defined default config ID found in Redis: {default_config_id}")
-                # 2. Try to load the actual config data using the retrieved ID
+                logger.info(f"User default ID found: {default_config_id}")
                 config_json = await redis_client.get(default_config_id)
                 if config_json:
-                    try:
-                        config_to_return = json.loads(config_json)
-                        # Basic validation: check if it has the expected keys
-                        if "id" in config_to_return and "name" in config_to_return and "graph_structure" in config_to_return:
-                            logger.info(f"Successfully loaded user-defined default '{config_to_return['name']}' from Redis.")
-                        else:
-                             logger.warning(f"Data for default config ID {default_config_id} has unexpected structure. Falling back.")
-                             config_to_return = None # Invalidate if structure is wrong
-                    except json.JSONDecodeError as json_err:
-                        logger.error(f"Failed to parse JSON for default config ID {default_config_id}: {json_err}. Falling back.")
-                        config_to_return = None # Invalidate on parse error
-                else:
-                    logger.warning(f"Default config ID '{default_config_id}' exists, but data not found in Redis. Falling back.")
-            else:
-                logger.info("No user-defined default config found in Redis key.")
-
-        except redis.RedisError as redis_err:
-            # Handle connection errors or other Redis issues during the lookup
-            logger.error(f"Redis error while checking for default config: {redis_err}. Falling back.")
-            config_to_return = None # Ensure fallback on Redis error
-        except Exception as e:
-            # Catch any other unexpected errors during Redis interaction
-            logger.error(f"Unexpected error checking Redis for default config: {e}", exc_info=True)
-            config_to_return = None # Ensure fallback
-
-    # --- Fallback to Hardcoded Default ---
-    if config_to_return is None:
-        logger.info("No valid user-defined default loaded from Redis. Returning hardcoded default.")
-        config_to_return = DEFAULT_GRAPH_STRUCTURE
-
-    # Ensure the fallback itself is valid before returning (should always be)
-    if not config_to_return or "id" not in config_to_return:
-         logger.error("CRITICAL: Hardcoded DEFAULT_GRAPH_STRUCTURE is invalid or missing!")
-         raise HTTPException(status_code=500, detail="Server configuration error: Default graph structure is invalid.")
-
-    # Return the determined configuration
+                    try: config_to_return = json.loads(config_json);
+                    except Exception: logger.error(f"Failed parse default JSON: {default_config_id}"); config_to_return=None
+                    if config_to_return and all(k in config_to_return for k in ["id", "name", "graph_structure"]): logger.info(f"Loaded user default '{config_to_return['name']}'.")
+                    else: logger.warning(f"Default data invalid: {default_config_id}. Falling back."); config_to_return=None
+                else: logger.warning(f"Default ID '{default_config_id}' key exists, but no data found. Falling back.")
+            else: logger.info("No user default key.")
+        except redis.RedisError as e: logger.error(f"Redis error checking default: {e}. Falling back.") ; config_to_return = None
+        except Exception as e: logger.error(f"Unexpected error checking default: {e}", exc_info=True); config_to_return = None
+    if config_to_return is None: logger.info("Returning hardcoded default."); config_to_return = DEFAULT_GRAPH_STRUCTURE
+    if not config_to_return or "id" not in config_to_return: logger.error("CRITICAL: Default config is invalid!"); raise HTTPException(500,"Server default config error.")
     return config_to_return
 
 # === Pydantic Models ===
@@ -211,37 +173,45 @@ class NodeData(BaseModel):
     id: str
     fullName: str = Field(...)
     nodeType: str = Field(...) # 'input' or 'hidden'
-    @validator('nodeType')
+    model_config = ConfigDict(extra='ignore') # Pydantic V2 config
+
+    @field_validator('nodeType')
     def valid_node_type(cls, v): 
         if v not in ['input', 'hidden']: 
-            raise ValueError("Invalid nodeType"); 
-        return v
+            raise ValueError("Invalid nodeType"); return v
 
-class EdgeData(BaseModel): source: str; target: str
+class EdgeData(BaseModel):
+    source: str
+    target: str
+    model_config = ConfigDict(extra='ignore')
+
 class GraphStructure(BaseModel):
     nodes: List[NodeData]
     edges: List[EdgeData]
-    @validator('nodes')
+    model_config = ConfigDict(extra='ignore')
+
+    @field_validator('nodes')
     def nodes_unique(cls, v): 
         ids = [n.id for n in v]; 
         if len(ids) != len(set(ids)): 
-            raise ValueError("Node IDs must be unique"); 
-        return v
-    @validator('edges')
+            raise ValueError("Node IDs must be unique"); return v
+    @field_validator('edges')
     def edges_valid(cls, v, values):
-        if 'nodes' not in values: return v
-        node_ids = {n.id for n in values['nodes']}
+        # Use model_dump() in Pydantic V2 if values is a model instance
+        nodes_data = values.data.get('nodes') if hasattr(values, 'data') else values.get('nodes')
+        if not nodes_data: return v # Should not happen if validation runs after nodes
+        node_ids = {n.id for n in nodes_data}
         for e in v:
             if e.source not in node_ids or e.target not in node_ids: raise ValueError(f"Edge {e.source}->{e.target} invalid");
         return v
 
 class UiFeatures(BaseModel):
-    # Removed UI_Guidance
     Clarity: float = Field(..., ge=0.0, le=1.0)
     Familiarity: float = Field(..., ge=0.0, le=1.0)
     Findability: float = Field(..., ge=0.0, le=1.0)
     Complexity: float = Field(..., ge=0.0, le=1.0) # 0=Simple, 1=Complex
     AestheticTrust: float = Field(..., ge=0.0, le=1.0)
+    model_config = ConfigDict(extra='ignore')
 
 class CognitiveStateProbabilities(BaseModel):
     IS1: float = Field(..., alias="Perceived UI Quality", ge=0.0, le=1.0)
@@ -250,16 +220,15 @@ class CognitiveStateProbabilities(BaseModel):
     IS4: float = Field(..., alias="Confidence / Self-Efficacy", ge=0.0, le=1.0)
     IS5: float = Field(..., alias="Attentional Focus", ge=0.0, le=1.0)
     IS6: float = Field(..., alias="Affective State", ge=0.0, le=1.0)
-    # Allow potential extra fields from LLM if needed, though strict parsing is better
-    class Config: allow_population_by_field_name = True; extra = 'ignore'
+    model_config = ConfigDict(populate_by_name=True, extra='ignore') # Updated Pydantic V2 config
 
 
 class Stage2LLMResponse(BaseModel):
     cognitive_state_probabilities: CognitiveStateProbabilities
     user_perception_summary: str
+    model_config = ConfigDict(extra='ignore')
 
 class PersonaInputs(BaseModel):
-    # Define expected persona inputs (A nodes, H)
     A1: float = Field(..., ge=0.0, le=1.0, alias="Domain Expertise")
     A2: float = Field(..., ge=0.0, le=1.0, alias="Web Literacy")
     A3: float = Field(..., ge=0.0, le=1.0, alias="Task Familiarity")
@@ -267,7 +236,7 @@ class PersonaInputs(BaseModel):
     A5: float = Field(..., ge=0.0, le=1.0, alias="Cognitive Capacity")
     A6: float = Field(..., ge=0.0, le=1.0, alias="Risk Aversion")
     H: Optional[float] = Field(0.5, ge=0.0, le=1.0, alias="Recent History") # Optional H node
-    class Config: allow_population_by_field_name = True
+    model_config = ConfigDict(populate_by_name=True, extra='ignore') # Updated Pydantic V2 config
 
 class PredictionPayload(BaseModel):
     persona_inputs: PersonaInputs
@@ -275,10 +244,12 @@ class PredictionPayload(BaseModel):
     graph_structure: GraphStructure # The BN definition
     config_id: Optional[str] = None # ID if saved, for logging
     config_name: Optional[str] = "Unsaved/Unknown" # Name for logging
+    model_config = ConfigDict(extra='ignore')
 
 class SaveConfigPayload(BaseModel):
     config_name: str = Field(..., min_length=1)
     graph_structure: GraphStructure
+    model_config = ConfigDict(extra='ignore')
 
 class LogPayload(BaseModel): # Used internally for blob logging format
     timestamp: str
@@ -288,6 +259,7 @@ class LogPayload(BaseModel): # Used internally for blob logging format
     nodeProbabilities: Dict[str, float] # All nodes (A, IS, O) with P(1)
     userPerceptionSummary: str
     llmReasoning: str
+    model_config = ConfigDict(extra='ignore')
 
 def get_dynamic_node_info(graph: GraphStructure) -> Tuple[Dict[str, List[str]], Dict[str, str], Dict[str, str], List[str], List[str], List[str]]:
     """ Parses graph structure to get node info needed for LLM prompts and logic. """
