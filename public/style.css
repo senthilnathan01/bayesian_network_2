@@ -1,43 +1,70 @@
-/* public/style.css - Single-column layout */
+/* public/style.css - Single Column Layout Base */
 
 body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; margin: 0; padding: 20px; background-color: #f4f4f4; }
 h1, h2, h3 { color: #333; text-align: center; margin-bottom: 0.5em; margin-top: 0.8em;}
 h1 { margin-bottom: 1em; }
-.container { width: 100%; max-width: 1000px; display: flex; flex-direction: column; align-items: center; }
-.graph-editor, .config-section, .input-section, .output-section, .log-section { padding: 15px; border: 1px solid #ccc; border-radius: 8px; background-color: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.1); width: 95%; max-width: 900px; margin-bottom: 20px; box-sizing: border-box; overflow: hidden; }
-label { display: inline-block; margin-bottom: 5px; font-weight: bold; color: #555; min-width: 100px; vertical-align: middle; font-size: 0.9em;}
-input[type=text], input[type=number], select { padding: 8px; border: 1px solid #ccc; border-radius: 4px; margin-right: 5px; margin-bottom: 8px; vertical-align: middle; font-size: 14px; }
-input[type=number] { width: 70px; }
+
+/* --- Layout Container --- */
+.container { width: 100%; max-width: 1100px; /* Adjusted width */ display: flex; flex-direction: column; align-items: center;}
+
+/* --- Section Styling (Single Column) --- */
+.ui-task-input-section, .user-perception-section, .input-section, .graph-editor, .config-section, .output-section, .log-section {
+    padding: 15px; border: 1px solid #ccc; border-radius: 8px; background-color: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    width: 95%; max-width: 900px; margin-bottom: 20px; box-sizing: border-box;
+}
+
+/* --- Form Element Styling --- */
+label { display: block; margin-bottom: 5px; font-weight: bold; color: #555; font-size: 0.9em;}
+input[type=text], input[type=number], select, input[type=file] { width: calc(100% - 18px); /* Full width minus padding/border */ padding: 8px; border: 1px solid #ccc; border-radius: 4px; margin-bottom: 10px; font-size: 14px; box-sizing: border-box; }
+input[type=number] { width: 80px; display: inline-block; vertical-align: middle; margin-left: 5px;} /* Inline number inputs */
+input[type=file] { padding: 4px; }
+.input-section label { display: inline-block; width: auto; min-width: 200px; margin-right: 5px;} /* Adjust persona labels */
+.input-section div { margin-bottom: 5px; } /* Tighter spacing for persona inputs */
+
 button { padding: 8px 12px; background-color: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 14px; transition: background-color 0.2s ease; margin-right: 5px; margin-top: 5px; vertical-align: middle; }
 button:hover { background-color: #0056b3; }
 button:disabled { background-color: #cccccc; cursor: not-allowed; }
-.config-controls > div, .input-section > div { margin-bottom: 10px; }
-#input-controls-container { margin-bottom: 10px; max-height: 180px; overflow-y: auto; border: 1px solid #eee; padding: 10px; }
-.input-section label { width: auto; min-width: 180px; }
-#set-default-button { background-color: #28a745; } #set-default-button:hover { background-color: #218838; } /* Kept styling */
+.config-controls { margin-bottom: 10px; }
+#input-controls-container, #persona-input-controls-container { margin-bottom: 10px; max-height: 200px; overflow-y: auto; border: 1px solid #eee; padding: 10px; }
+#set-default-button { background-color: #28a745; } #set-default-button:hover { background-color: #218838; }
 #delete-config-button { background-color: #dc3545; } #delete-config-button:hover { background-color: #c82333; }
 .invalid-input input { border: 2px solid red !important; }
+
+/* --- Status Messages & Spinner --- */
 .status-message { margin-top: 5px; font-style: italic; min-height: 1.2em; font-size: 0.9em; }
 .status-message.success { color: green; } .status-message.error { color: red; } .status-message.loading { color: #666; }
 .spinner { border: 4px solid #f3f3f3; border-top: 4px solid #007bff; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; position: fixed; top: 20px; right: 20px; z-index: 1001;}
 @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 .hidden { display: none; }
-#cy { width: 100%; height: 550px; border: 1px solid #ccc; background-color: #fff; display: block; box-sizing: border-box;}
-.output-section { word-wrap: break-word; display: flex; flex-direction: column;}
-.output-section h2 { margin-bottom: 10px; flex-shrink: 0;}
-#llm-reasoning-content { background-color: #f8f9fa; border: 1px solid #eee; padding: 15px; border-radius: 5px; margin-bottom: 10px; white-space: pre-wrap; font-size: 0.9em; flex-grow: 1; overflow-y: auto; min-height: 80px;}
-.output-section details { border: 1px solid #eee; padding: 10px; border-radius: 4px; margin-top: 10px; flex-shrink: 0;}
+
+/* --- Specific Section Content Styling --- */
+#ui-objective-scores h3, .user-perception-section h3 { font-size: 1em; color: #444; margin-top: 15px; margin-bottom: 5px; }
+#ui-objective-scores ul, .user-perception-section #user-perception-summary {
+    list-style: none; padding: 0; margin: 0 0 10px 0; font-size: 0.9em; color: #333;
+    background-color: #f8f9fa; border: 1px solid #eee; border-radius: 4px; padding: 10px;
+}
+#ui-objective-scores ul li { margin-bottom: 3px; }
+#user-perception-summary { min-height: 4em; } /* Ensure space for text */
+
+
+/* --- Cytoscape Container --- */
+#cy { width: 100%; height: 500px; /* Adjusted fixed height */ border: 1px solid #ccc; background-color: #fff; display: block; box-sizing: border-box; }
+
+/* --- LLM Output & Context --- */
+.output-section { word-wrap: break-word; }
+#llm-reasoning-content { background-color: #f8f9fa; border: 1px solid #eee; padding: 15px; border-radius: 5px; margin-bottom: 10px; white-space: pre-wrap; font-size: 0.9em; max-height: 350px; overflow-y: auto; min-height: 100px; }
+.output-section details { border: 1px solid #eee; padding: 10px; border-radius: 4px; margin-top: 10px;}
 .output-section summary { cursor: pointer; font-weight: bold; color: #0056b3; font-size: 0.95em; }
-.output-section h3 { margin-top: 10px; margin-bottom: 5px; color: #0056b3; font-size: 1em; }
-.output-section p, .output-section ul { margin-bottom: 5px; color: #333; white-space: pre-wrap; font-size: 0.9em; }
-.output-section ul { padding-left: 20px; }
-.graph-editor { display: flex; flex-direction: column; overflow: hidden; }
-.graph-editor h2 { flex-shrink: 0; }
-.graph-editor p { flex-shrink: 0; color: #555; font-size: 0.9em; text-align: left; line-height: 1.4; margin-bottom: 10px;} /* Use left align for instructions */
-#cy-container { flex-grow: 1; position: relative; min-height: 450px; overflow: hidden; }
-.log-section { margin-top: 0; }
+#debug-context { font-size: 0.85em; color: #444; max-height: 200px; overflow-y: auto;}
+
+/* --- Graph Editor Section --- */
+.graph-editor p { color: #555; font-size: 0.9em; text-align: left; margin-bottom: 10px; background-color: #f0f0f0; padding: 8px; border-radius: 4px;}
+
+/* --- Logging --- */
 .log-section p { color: #555; font-size: 0.9em;}
 #log-count { font-weight: bold; }
+
+/* --- Context Menu Styles --- */
 .ctx-menu { display: none; z-index: 1000; background-color: #ffffff; border: 1px solid #b0b0b0; border-radius: 4px; min-width: 160px; box-shadow: 0 3px 6px rgba(0,0,0,0.15); padding: 4px 0; }
 .ctx-menu-item { display: block; padding: 6px 12px; color: #333; cursor: pointer; font-size: 14px; white-space: nowrap; }
 .ctx-menu-item:hover { background-color: #e9e9e9; }
@@ -45,6 +72,6 @@ button:disabled { background-color: #cccccc; cursor: not-allowed; }
 .tippy-box[data-theme~='light'] { background-color: #333; color: white; border-radius: 4px; padding: 5px 10px; font-size: 13px;}
 .tippy-arrow { color: #333; }
 .edge-source-active { border: 3px solid #00dd00 !important; box-shadow: 0 0 8px #00dd00; }
-.eh-grabbed { border: 3px solid #007bff !important; box-shadow: 0 0 8px #007bff; }
 
-/* Remove the complex media query grid */
+
+/* --- NO MORE @media query - layout is single column --- */
