@@ -1,5 +1,8 @@
 fastapi
 uvicorn[standard]
-openai>=1.0 # Use a modern version
+openai>=1.0
 python-dotenv
 pydantic
+redis>=4.0
+vercel-blob==0.3.0
+aiohttp>=3.8.0
