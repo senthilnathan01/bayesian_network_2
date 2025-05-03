@@ -225,6 +225,15 @@ class LogPayload(BaseModel): # Used internally for blob logging format
     llmReasoning: str
     model_config = ConfigDict(extra='ignore')
 
+class ReasoningRequestPayload(BaseModel):
+    persona_inputs: PersonaInputs
+    ui_features: UiFeatures
+    cognitive_states_est: CognitiveStateProbabilities # Pass the estimated IS states
+    outcomes_calc: Dict[str, float] # Pass the calculated O states
+    graph_structure: GraphStructure
+    user_perception_summary: str
+    task_description: str = "User performing task on provided UI" # Allow overriding later if needed
+
 # --- Helper Functions ---
 # (get_dynamic_node_info and is_dag definitions remain the same)
 def get_dynamic_node_info(graph: GraphStructure) -> Tuple[Dict[str, List[str]], Dict[str, str], Dict[str, str], List[str], List[str], List[str]]:
@@ -517,33 +526,96 @@ async def set_default_configuration(config_id: str = Body(..., embed=True)): # E
         logger.error(f"Set default error: {e}"); raise HTTPException(500, f"Failed to set default: {e}")
 
 # --- Main Prediction Endpoint ---
-@app.post("/api/predict_full_simulation")
-async def predict_full_simulation(payload: PredictionPayload):
-    # ... (Keep existing 7-step implementation using await for async calls) ...
-    logger.info("Entered full simulation endpoint.")
+@app.post("/api/predict_cognitive_state")
+async def predict_cognitive_state(payload: PredictionPayload):
+    """
+    Runs Stages 2 & 3: Estimates IS nodes via LLM, calculates O nodes via heuristics.
+    Returns probabilities, perception summary, and debug context.
+    Reasoning must be fetched separately via /api/generate_reasoning.
+    """
+    logger.info("Entered cognitive state prediction endpoint.")
     try:
-        is_valid, cycle_info = is_dag(payload.graph_structure);
+        # 0. Validate Graph
+        is_valid, cycle_info = is_dag(payload.graph_structure)
         if not is_valid: raise HTTPException(400, f"Invalid graph: Not a DAG. {cycle_info or ''}")
-        _, node_descriptions, _, all_nodes, _, _ = get_dynamic_node_info(payload.graph_structure)
-        ui_features = payload.ui_features
-        stage2_result = await call_openai_stage2_cognitive_states(payload.persona_inputs, ui_features, payload.graph_structure)
-        cognitive_states = stage2_result.cognitive_state_probabilities; user_perception = stage2_result.user_perception_summary
-        outcomes = calculate_outcome_nodes(payload.persona_inputs, cognitive_states)
-        reasoning_context_probs = {**payload.persona_inputs.model_dump(by_alias=True), **cognitive_states.model_dump(by_alias=True), **outcomes}
-        reasoning_text = await call_openai_stage4_reasoning(payload.persona_inputs, ui_features, cognitive_states, outcomes, payload.graph_structure, user_perception, "User performing task on provided UI")
-        all_final_node_probs_p1 = {**{name: getattr(payload.persona_inputs, name) for name in payload.persona_inputs.model_fields}, **{name: getattr(cognitive_states, name) for name in cognitive_states.model_fields}, **outcomes}
-        final_response_probs = {}; log_probs_p1 = {}
-        for node_id in all_nodes:
-            p1 = all_final_node_probs_p1.get(node_id, 0.5); p1_clamped = max(0.0, min(1.0, p1))
-            final_response_probs[node_id] = {"0": 1.0 - p1_clamped, "1": p1_clamped, "description": node_descriptions.get(node_id, node_id)}; log_probs_p1[node_id] = p1_clamped
-        response_payload = {"probabilities": final_response_probs, "ui_features": ui_features.dict(), "user_perception_summary": user_perception, "llm_reasoning": reasoning_text, "debug_context": {"persona_inputs": payload.persona_inputs.model_dump(by_alias=True), "cognitive_states_est": cognitive_states.model_dump(by_alias=True), "outcomes_calc": outcomes}}
-        log_entry = LogPayload(timestamp=datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'), configId=payload.config_id or "unknown", configName=payload.config_name or "Unknown", uiFeatures=ui_features.dict(), nodeProbabilities=log_probs_p1, userPerceptionSummary=user_perception, llmReasoning=reasoning_text)
-        try: logger.info(f"Logging prediction for configId: {log_entry.configId}"); ui_feature_ids = list(ui_features.model_fields.keys()); await log_data_to_blob(log_entry, all_nodes, ui_feature_ids)
-        except Exception as log_err: logger.error(f"Logging failed: {log_err}", exc_info=True)
-        logger.info("Full simulation successful."); return response_payload
-    except HTTPException as e: logger.error(f"HTTPException: {e.detail}"); raise e
-    except Exception as e: logger.error(f"Full Simulation Error: {e}", exc_info=True); raise HTTPException(500, "Simulation failed.")
 
+        # Get node info
+        _, node_descriptions, _, all_nodes, _, _ = get_dynamic_node_info(payload.graph_structure)
+
+        # 1. Stage 1 Features are provided in payload.ui_features
+
+        # 2. Stage 2 (Cognitive States + User Perception)
+        stage2_result = await call_openai_stage2_cognitive_states(payload.persona_inputs, payload.ui_features, payload.graph_structure)
+        cognitive_states = stage2_result.cognitive_state_probabilities
+        user_perception = stage2_result.user_perception_summary
+
+        # 3. Stage 3 (Outcome Nodes)
+        outcomes = calculate_outcome_nodes(payload.persona_inputs, cognitive_states)
+
+        # 4. Combine All Node Probabilities for Response
+        all_node_probs_p1 = {
+            **{name: getattr(payload.persona_inputs, name) for name in payload.persona_inputs.model_fields},
+            **{name: getattr(cognitive_states, name) for name in cognitive_states.model_fields},
+            **outcomes
+        }
+        final_response_probs = {}
+        for node_id in all_nodes:
+            p1 = all_node_probs_p1.get(node_id, 0.5); p1_clamped = max(0.0, min(1.0, p1))
+            final_response_probs[node_id] = {"0": 1.0 - p1_clamped, "1": p1_clamped, "description": node_descriptions.get(node_id, node_id)}
+
+        # 5. Log the prediction (WITHOUT reasoning yet)
+        log_entry = LogPayload(
+            timestamp=datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
+            configId=payload.config_id or "unknown",
+            configName=payload.config_name or "Unknown",
+            uiFeatures=payload.ui_features.dict(),
+            nodeProbabilities=all_node_probs_p1,
+            userPerceptionSummary=user_perception,
+            llmReasoning="" # Log empty reasoning for now
+        )
+        try:
+            ui_feature_ids = list(payload.ui_features.model_fields.keys())
+            await log_data_to_blob(log_entry, all_nodes, ui_feature_ids)
+        except Exception as log_err: logger.error(f"Logging failed: {log_err}", exc_info=True)
+
+        # 6. Return results (excluding reasoning)
+        logger.info("Cognitive state prediction successful.")
+        return {
+            "probabilities": final_response_probs,
+            "ui_features": payload.ui_features.dict(), # Echo back features used
+            "user_perception_summary": user_perception,
+            # Include calculated states needed for reasoning call
+            "cognitive_states_est_data": cognitive_states.model_dump(), # Use model_dump()
+            "outcomes_calc_data": outcomes,
+            # Optional debug context if needed by frontend
+            "debug_context": {
+                 "persona_inputs_data": payload.persona_inputs.model_dump(by_alias=True),
+            }
+        }
+
+    except HTTPException as e: logger.error(f"HTTPException: {e.detail}"); raise e
+    except Exception as e: logger.error(f"Cognitive State Prediction Error: {e}", exc_info=True); raise HTTPException(500, "Prediction failed.")
+
+@app.post("/api/generate_reasoning")
+async def generate_reasoning(payload: ReasoningRequestPayload):
+    """
+    Stage 4: Generates reasoning text based on provided simulation context.
+    """
+    logger.info("Entered reasoning generation endpoint.")
+    try:
+        # Call the existing reasoning function
+        reasoning_text = await call_openai_stage4_reasoning(
+            payload.persona_inputs, payload.ui_features,
+            payload.cognitive_states_est, payload.outcomes_calc,
+            payload.graph_structure, payload.user_perception_summary,
+            payload.task_description
+        )
+        logger.info("Reasoning generation successful.")
+        return {"llm_reasoning": reasoning_text}
+
+    except HTTPException as e: logger.error(f"HTTPException in reasoning: {e.detail}"); raise e
+    except Exception as e: logger.error(f"Reasoning Generation Error: {e}", exc_info=True); raise HTTPException(500, "Reasoning generation failed.")
+    
 # --- Download Log Endpoint ---
 @app.get("/api/download_log/{config_id}")
 async def download_log_file(config_id: str):
