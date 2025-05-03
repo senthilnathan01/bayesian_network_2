@@ -44,10 +44,90 @@ function displayLLMReasoning(reasoningText) { const d=document.getElementById('l
 function displayLLMContext(context) { if(!context)return; const iD=document.getElementById('input-context'); const sD=document.getElementById('structure-context'); const dD=document.getElementById('node-descriptions-context'); if(!iD || !sD || !dD) return; let iH='<ul>';(context.input_states||[]).forEach(s=>{iH+=`<li>${s.node}(${s.description}): ${s.state} (p=${s.value.toFixed(2)})</li>`;});iH+='</ul>';iD.innerHTML=iH||'N/A'; let sH='<ul>';Object.entries(context.node_dependencies||{}).forEach(([n,p])=>{sH+=`<li>${n}: ${p.join(',')||'None'}</li>`;});sH+='</ul>';sD.innerHTML=sH||'N/A'; let dH='<ul>';Object.entries(context.node_descriptions||{}).forEach(([n,d])=>{dH+=`<li>${n}: ${d}</li>`;});dH+='</ul>';dD.innerHTML=dH||'N/A';}
 function setStatusMessage(elementId, message, type) { const el=document.getElementById(elementId); if(el){el.textContent=message; el.className=`status-message ${type||''}`;}}
 async function retryFetch(fetchFn, maxRetries, onRetry) { let lastError; for(let attempt=1; attempt<=maxRetries; attempt++){ try{ await fetchFn(); return; }catch(error){ lastError=error; console.warn(`Attempt ${attempt} fail: ${error.message}`); if(attempt<maxRetries){ if(onRetry)onRetry(); await new Promise(resolve=>setTimeout(resolve, 1000*attempt));}}} throw lastError; }
-function logPrediction(inputs, probabilities) { const logEntry = { timestamp: new Date().toISOString(), configId: currentConfig ? currentConfig.id : "unknown", configName: currentConfig ? currentConfig.name : "Unknown", inputs: { ...inputs }, probabilities: {} }; for (const n in probabilities) { if (probabilities[n] && typeof probabilities[n]["1"] === 'number') {logEntry.probabilities[n] = probabilities[n]["1"];} else {console.warn(`logPrediction: Invalid prob data for node ${n}`)} } for (const i in inputs) { if (!(i in logEntry.probabilities)) { logEntry.probabilities[i] = inputs[i]; } } sessionLog.push(logEntry); const logCountEl = document.getElementById('log-count'); if (logCountEl) logCountEl.textContent = `Session logs: ${sessionLog.length}`; }
+// function logPrediction(inputs, probabilities) { const logEntry = { timestamp: new Date().toISOString(), configId: currentConfig ? currentConfig.id : "unknown", configName: currentConfig ? currentConfig.name : "Unknown", inputs: { ...inputs }, probabilities: {} }; for (const n in probabilities) { if (probabilities[n] && typeof probabilities[n]["1"] === 'number') {logEntry.probabilities[n] = probabilities[n]["1"];} else {console.warn(`logPrediction: Invalid prob data for node ${n}`)} } for (const i in inputs) { if (!(i in logEntry.probabilities)) { logEntry.probabilities[i] = inputs[i]; } } sessionLog.push(logEntry); const logCountEl = document.getElementById('log-count'); if (logCountEl) logCountEl.textContent = `Session logs: ${sessionLog.length}`; }
+
+function logPrediction(inputs, probabilities) {
+    const timestamp = new Date().toISOString();
+    // Flatten probabilities into NodeID: P(1) format
+    const flatProbabilities = {};
+    for (const nodeId in probabilities) {
+        if (probabilities[nodeId] && typeof probabilities[nodeId]["1"] === 'number') {
+            flatProbabilities[nodeId] = probabilities[nodeId]["1"];
+        }
+    }
+     // Add input values as well, potentially overwriting if node was both input and output (shouldn't happen in DAG)
+     for (const inputId in inputs) {
+         flatProbabilities[inputId] = inputs[inputId];
+     }
+
+    const logEntry = {
+        timestamp: timestamp,
+        configId: currentConfig ? currentConfig.id : "unsaved",
+        configName: currentConfig ? currentConfig.name : "Unsaved",
+        // inputs: { ...inputs }, // Store inputs separately if needed, or just rely on flatProbabilities
+        probabilities: flatProbabilities // Store the NodeID: P(1) mapping
+    };
+
+    sessionLog.push(logEntry);
+    const logCountEl = document.getElementById('log-count');
+    if (logCountEl) logCountEl.textContent = `Session logs: ${sessionLog.length}`;
+    console.log("Prediction added to session log:", logEntry);
+}
+
 function clearSessionLog() { sessionLog = []; const logCountEl = document.getElementById('log-count'); if (logCountEl) logCountEl.textContent = `Session logs: 0`; }
 function clearLLMOutputs() { const reasonEl=document.getElementById('llm-reasoning-content'); if(reasonEl) reasonEl.textContent='Run prediction...'; const ic=document.getElementById('input-context'); if(ic) ic.innerHTML='<p>N/A</p>'; const sc=document.getElementById('structure-context'); if(sc) sc.innerHTML='<p>N/A</p>'; const dc=document.getElementById('node-descriptions-context'); if(dc) dc.innerHTML='<p>N/A</p>'; setStatusMessage('predict-status', "", ""); }
-function downloadSessionLog() { if(sessionLog.length===0){alert("No logs.");return;} const h=['Timestamp','ConfigID','ConfigName','NodeID','ProbP1']; const r=[]; sessionLog.forEach(l=>{ const probs = l.probabilities || {}; Object.entries(probs).forEach(([n,p])=>{ if(typeof p === 'number') r.push([l.timestamp,l.configId,l.configName,n,p.toFixed(4)]); else console.warn("Skip non-numeric prob in session download:", n, p); }); }); const csv=Papa.unparse({fields:h,data:r}); triggerCsvDownload(csv, `session_log_${(currentConfig?.name||'unsaved').replace(/[^a-z0-9]/gi,'_')}`); }
+// function downloadSessionLog() { if(sessionLog.length===0){alert("No logs.");return;} const h=['Timestamp','ConfigID','ConfigName','NodeID','ProbP1']; const r=[]; sessionLog.forEach(l=>{ const probs = l.probabilities || {}; Object.entries(probs).forEach(([n,p])=>{ if(typeof p === 'number') r.push([l.timestamp,l.configId,l.configName,n,p.toFixed(4)]); else console.warn("Skip non-numeric prob in session download:", n, p); }); }); const csv=Papa.unparse({fields:h,data:r}); triggerCsvDownload(csv, `session_log_${(currentConfig?.name||'unsaved').replace(/[^a-z0-9]/gi,'_')}`); }
+
+function downloadSessionLog() {
+    if (sessionLog.length === 0) {
+        alert("No data logged in this session yet.");
+        return;
+    }
+    console.log("Generating session log CSV (row per prediction)...");
+
+    // --- Determine Dynamic Headers ---
+    const allNodeIds = new Set();
+    sessionLog.forEach(entry => {
+        // Get node IDs from the stored probabilities for this entry
+        Object.keys(entry.probabilities || {}).forEach(nodeId => allNodeIds.add(nodeId));
+    });
+    // Sort node IDs alphabetically for consistent column order
+    const sortedNodeIds = Array.from(allNodeIds).sort();
+
+    // Define the final headers
+    const csvHeaders = ["Timestamp", "ConfigID", "ConfigName", ...sortedNodeIds];
+    console.log("CSV Headers:", csvHeaders);
+
+    // --- Map Log Data to Rows ---
+    const csvData = sessionLog.map(entry => {
+        const row = { // Using object mapping for clarity with PapaParse
+            Timestamp: entry.timestamp,
+            ConfigID: entry.configId,
+            ConfigName: entry.configName,
+        };
+        // Add probability for each node ID in the header list
+        sortedNodeIds.forEach(nodeId => {
+            const probValue = entry.probabilities ? entry.probabilities[nodeId] : undefined;
+            // Format the probability or leave blank if not present for this entry
+            row[nodeId] = (probValue !== undefined && typeof probValue === 'number') ? probValue.toFixed(4) : '';
+        });
+        return row;
+    });
+
+    // --- Generate and Download CSV ---
+    try {
+        const csvString = Papa.unparse({
+            fields: csvHeaders, // Use dynamic headers
+            data: csvData
+        });
+        triggerCsvDownload(csvString, `session_log_${(currentConfig?.name || 'unsaved').replace(/[^a-z0-9]/gi, '_')}`);
+        console.log("Session log CSV download triggered.");
+    } catch (error) {
+        console.error("Error generating session log CSV:", error);
+        alert(`Error generating CSV: ${error.message}`);
+    }
+}
+
 async function downloadAllLogs() { if(!currentConfig||!currentConfig.id||currentConfig.id==="unknown"||currentConfig.id==="default-config-001"){alert("Load saved config.");return;} setStatusMessage('predict-status',"Downloading logs...","loading"); showSpinner(true); enableUI(false); await retryFetch(async()=>{ const r = await fetch(`/api/download_log/${currentConfig.id}`); if(!r.ok){ if(r.status === 404) throw new Error(`No logs for '${currentConfig.name}'.`); const e = await r.json().catch(()=>({detail:`HTTP ${r.status}`})); throw new Error(e.detail); } const b = await r.blob(); triggerCsvDownload(b, `all_logs_${currentConfig.name.replace(/[^a-z0-9]/gi,'_')}`); setStatusMessage('predict-status',"Logs downloaded.","success"); },3,()=>setStatusMessage('predict-status',"Download fail. Retry...","error")).catch(e=>{setStatusMessage('predict-status',`Log download fail: ${e.message}`,"error");}).finally(()=>{enableUI(true);showSpinner(false);});}
 function triggerCsvDownload(csvDataOrBlob, baseFilename) { const blob = (csvDataOrBlob instanceof Blob) ? csvDataOrBlob : new Blob([csvDataOrBlob], { type: 'text/csv;charset=utf-8;' }); const link = document.createElement("a"); const url = URL.createObjectURL(blob); link.setAttribute("href", url); const timestampStr = new Date().toISOString().replace(/[:.]/g, '-'); link.setAttribute("download", `${baseFilename}_${timestampStr}.csv`); link.style.visibility = 'hidden'; document.body.appendChild(link); link.click(); document.body.removeChild(link); URL.revokeObjectURL(url); }
 function markConfigUnsaved() { const d = document.getElementById('current-config-name'); if (d && !d.textContent.endsWith('*')) { d.textContent += '*'; setStatusMessage('config-status', "Graph modified. Save changes.", "loading"); } }
@@ -194,47 +274,25 @@ async function fetchAndUpdateLLM() { if(!currentConfig||!currentConfig.graph_str
 // --- DOMContentLoaded Listener (AT THE END) ---
 // ==================================================
 document.addEventListener('DOMContentLoaded', async () => {
+    // ... (Initialization sequence remains the same) ...
     console.log("DOM Content Loaded. Starting initialization sequence...");
-
-    // Check core library and container first - Redundant but safe
     if (typeof cytoscape !== 'function') { alert("Error: Cytoscape library failed to load."); setStatusMessage('config-status', "Error: Core graph library failed.", "error"); showSpinner(false); return; }
     if (!document.getElementById('cy')) { alert("Error: Graph container element 'cy' not found."); setStatusMessage('config-status', "Error: Graph container missing.", "error"); showSpinner(false); return; }
-
-    // 1. Initialize Cytoscape Instance
-    initializeCytoscape(); // Creates 'cy' instance
-
-    if (!cy) { showSpinner(false); return; } // Stop if core failed
-
-    // 2. Initialize Editing Extensions (will try to register/init)
+    initializeCytoscape();
+    if (!cy) { showSpinner(false); return; }
     initializeEditingExtensions();
-
-    // 3. Initialize UI Button Listeners
     initializeUI();
-
-    // 4. Add Cytoscape Listeners for Click-to-Connect
     setupCytoscapeEventListeners();
-
-    // 5. Load Data
-    showSpinner(true);
-    setStatusMessage('config-status', "Loading config data...", "loading");
+    showSpinner(true); setStatusMessage('config-status', "Loading config data...", "loading");
     try {
         await loadDefaultConfig();
-        if (defaultGraphStructure) {
-            loadGraphData(defaultGraphStructure, true);
-            addDefaultToDropdown();
-            const select = document.getElementById('load-config-select');
-            if(!select.value || select.value === "") { selectConfigInDropdown(defaultGraphStructure.id); }
-        } else { throw new Error("Default config data unavailable."); }
+        if (defaultGraphStructure) { loadGraphData(defaultGraphStructure, true); addDefaultToDropdown(); const select = document.getElementById('load-config-select'); if(!select.value || select.value === "") { selectConfigInDropdown(defaultGraphStructure.id); } }
+        else { throw new Error("Default config data unavailable."); }
         await loadConfigList();
         const finalStatus = currentConfig ? `Config '${currentConfig.name}' loaded.` : "Ready.";
         if (!document.getElementById('config-status').classList.contains('error')){ setStatusMessage('config-status', finalStatus, "success"); }
-    } catch (error) {
-        console.error("Initialization Data Load Error:", error);
-        if (!document.getElementById('config-status').classList.contains('error')) { setStatusMessage('config-status', `Initialization failed: ${error.message}`, "error"); }
-        if (!currentConfig) { updateInputControls([]); const currentNameEl = document.getElementById('current-config-name'); if(currentNameEl) currentNameEl.textContent = "None"; }
-    } finally {
-        showSpinner(false);
-    }
+    } catch (error) { console.error("Initialization Data Load Error:", error); if (!document.getElementById('config-status').classList.contains('error')) { setStatusMessage('config-status', `Initialization failed: ${error.message}`, "error"); } if (!currentConfig) { updateInputControls([]); const currentNameEl = document.getElementById('current-config-name'); if(currentNameEl) currentNameEl.textContent = "None"; } }
+    finally { showSpinner(false); }
 });
 
 console.log("script.js loaded and parsed. Waiting for DOMContentLoaded.");
