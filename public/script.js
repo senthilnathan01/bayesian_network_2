@@ -10,14 +10,30 @@ let sessionLog = [];
 let contextMenuInstance = null;
 let newNodeCounter = 0;
 let didRegisterContextMenus = false;
-let edgeSourceNode = null; // For click-to-connect
+let edgeSourceNode = null;
 
 // ===========================================
 // --- ALL HELPER FUNCTION DEFINITIONS ---
 // ===========================================
 
-function nodeLabelFunc(node) { const id = node.data('id'); const fullName = node.data('fullName') || id; const currentLabel = node.data('currentProbLabel'); return `${id}: ${fullName}\n${currentLabel || '(N/A)'}`; }
-function simulateIsDag(graph) { if (!graph || !graph.nodes || !graph.edges) { console.warn("simulateIsDag: Invalid graph structure."); return false; } const adj = {}; const nodesSet = new Set(); graph.nodes.forEach(n => { if (n && n.id) { adj[n.id] = []; nodesSet.add(n.id); } else { console.warn("simulateIsDag: Invalid node object:", n); } }); graph.edges.forEach(e => { if (e && e.source && e.target && nodesSet.has(e.source) && nodesSet.has(e.target)) { if (e.source in adj) { adj[e.source].push(e.target); } else { adj[e.source] = [e.target]; console.warn(`simulateIsDag: Source ${e.source} init`); } } else { console.warn(`simulateIsDag: Invalid edge:`, e); } }); const path = new Set(); const visited = new Set(); function dfs(node) { path.add(node); visited.add(node); for (const neighbor of adj[node] || []) { if (!nodesSet.has(neighbor)) continue; if (path.has(neighbor)) { console.log(`Cycle: ${neighbor} in ${Array.from(path).join('->')}`); return false; } if (!visited.has(neighbor)) { if (!dfs(neighbor)) return false; } } path.delete(node); return true; } for (const node of nodesSet) { if (!visited.has(node)) { if (!dfs(node)) return false; } } return true; }
+function nodeLabelFunc(node) {
+    const id = node.data('id');
+    const fullName = node.data('fullName') || id;
+    const currentLabel = node.data('currentProbLabel');
+    return `${id}: ${fullName}\n${currentLabel || '(N/A)'}`;
+}
+
+function simulateIsDag(graph) {
+    if (!graph || !graph.nodes || !graph.edges) { console.warn("simulateIsDag: Invalid graph structure."); return false; }
+    const adj = {}; const nodesSet = new Set();
+    graph.nodes.forEach(n => { if (n && n.id) { adj[n.id] = []; nodesSet.add(n.id); } else { console.warn("simulateIsDag: Invalid node object:", n); } });
+    graph.edges.forEach(e => { if (e && e.source && e.target && nodesSet.has(e.source) && nodesSet.has(e.target)) { if (e.source in adj) { adj[e.source].push(e.target); } else { adj[e.source] = [e.target]; console.warn(`simulateIsDag: Source ${e.source} init`); } } else { console.warn(`simulateIsDag: Invalid edge:`, e); } });
+    const path = new Set(); const visited = new Set();
+    function dfs(node) { path.add(node); visited.add(node); for (const neighbor of adj[node] || []) { if (!nodesSet.has(neighbor)) continue; if (path.has(neighbor)) { console.log(`Cycle: ${neighbor} in ${Array.from(path).join('->')}`); return false; } if (!visited.has(neighbor)) { if (!dfs(neighbor)) return false; } } path.delete(node); return true; }
+    for (const node of nodesSet) { if (!visited.has(node)) { if (!dfs(node)) return false; } }
+    return true;
+}
+
 function selectConfigInDropdown(configId) { const select = document.getElementById('load-config-select'); if (select) select.value = configId; }
 function enableUI(enable) { const buttons = document.querySelectorAll('button'); const inputs = document.querySelectorAll('input, select'); buttons.forEach(btn => btn.disabled = !enable); inputs.forEach(inp => inp.disabled = !enable); const toggle = document.getElementById('gradient-toggle'); if(toggle) toggle.disabled = false; document.body.style.cursor = enable ? 'default' : 'wait'; }
 function showSpinner(show) { const spinner = document.getElementById('loading-spinner'); if (spinner) spinner.classList.toggle('hidden', !show); }
@@ -28,16 +44,128 @@ function displayLLMReasoning(reasoningText) { const d=document.getElementById('l
 function displayLLMContext(context) { if(!context)return; const iD=document.getElementById('input-context'); const sD=document.getElementById('structure-context'); const dD=document.getElementById('node-descriptions-context'); if(!iD || !sD || !dD) return; let iH='<ul>';(context.input_states||[]).forEach(s=>{iH+=`<li>${s.node}(${s.description}): ${s.state} (p=${s.value.toFixed(2)})</li>`;});iH+='</ul>';iD.innerHTML=iH||'N/A'; let sH='<ul>';Object.entries(context.node_dependencies||{}).forEach(([n,p])=>{sH+=`<li>${n}: ${p.join(',')||'None'}</li>`;});sH+='</ul>';sD.innerHTML=sH||'N/A'; let dH='<ul>';Object.entries(context.node_descriptions||{}).forEach(([n,d])=>{dH+=`<li>${n}: ${d}</li>`;});dH+='</ul>';dD.innerHTML=dH||'N/A';}
 function setStatusMessage(elementId, message, type) { const el=document.getElementById(elementId); if(el){el.textContent=message; el.className=`status-message ${type||''}`;}}
 async function retryFetch(fetchFn, maxRetries, onRetry) { let lastError; for(let attempt=1; attempt<=maxRetries; attempt++){ try{ await fetchFn(); return; }catch(error){ lastError=error; console.warn(`Attempt ${attempt} fail: ${error.message}`); if(attempt<maxRetries){ if(onRetry)onRetry(); await new Promise(resolve=>setTimeout(resolve, 1000*attempt));}}} throw lastError; }
-function logPrediction(inputs, probabilities) { const logEntry = { timestamp: new Date().toISOString(), configId: currentConfig ? currentConfig.id : "unknown", configName: currentConfig ? currentConfig.name : "Unknown", inputs: { ...inputs }, probabilities: {} }; for (const n in probabilities) { if (probabilities[n] && typeof probabilities[n]["1"] === 'number') {logEntry.probabilities[n] = probabilities[n]["1"];} else {console.warn(`logPrediction: Invalid prob data for node ${n}`)} } for (const i in inputs) { if (!(i in logEntry.probabilities)) { logEntry.probabilities[i] = inputs[i]; } } sessionLog.push(logEntry); const logCountEl = document.getElementById('log-count'); if (logCountEl) logCountEl.textContent = `Session logs: ${sessionLog.length}`; }
+// function logPrediction(inputs, probabilities) { const logEntry = { timestamp: new Date().toISOString(), configId: currentConfig ? currentConfig.id : "unknown", configName: currentConfig ? currentConfig.name : "Unknown", inputs: { ...inputs }, probabilities: {} }; for (const n in probabilities) { if (probabilities[n] && typeof probabilities[n]["1"] === 'number') {logEntry.probabilities[n] = probabilities[n]["1"];} else {console.warn(`logPrediction: Invalid prob data for node ${n}`)} } for (const i in inputs) { if (!(i in logEntry.probabilities)) { logEntry.probabilities[i] = inputs[i]; } } sessionLog.push(logEntry); const logCountEl = document.getElementById('log-count'); if (logCountEl) logCountEl.textContent = `Session logs: ${sessionLog.length}`; }
+
+function logPrediction(inputs, probabilities) {
+    const timestamp = new Date().toISOString();
+    // Flatten probabilities into NodeID: P(1) format
+    const flatProbabilities = {};
+    for (const nodeId in probabilities) {
+        if (probabilities[nodeId] && typeof probabilities[nodeId]["1"] === 'number') {
+            flatProbabilities[nodeId] = probabilities[nodeId]["1"];
+        }
+    }
+     // Add input values as well, potentially overwriting if node was both input and output (shouldn't happen in DAG)
+     for (const inputId in inputs) {
+         flatProbabilities[inputId] = inputs[inputId];
+     }
+
+    const logEntry = {
+        timestamp: timestamp,
+        configId: currentConfig ? currentConfig.id : "unsaved",
+        configName: currentConfig ? currentConfig.name : "Unsaved",
+        // inputs: { ...inputs }, // Store inputs separately if needed, or just rely on flatProbabilities
+        probabilities: flatProbabilities // Store the NodeID: P(1) mapping
+    };
+
+    sessionLog.push(logEntry);
+    const logCountEl = document.getElementById('log-count');
+    if (logCountEl) logCountEl.textContent = `Session logs: ${sessionLog.length}`;
+    console.log("Prediction added to session log:", logEntry);
+}
+
 function clearSessionLog() { sessionLog = []; const logCountEl = document.getElementById('log-count'); if (logCountEl) logCountEl.textContent = `Session logs: 0`; }
 function clearLLMOutputs() { const reasonEl=document.getElementById('llm-reasoning-content'); if(reasonEl) reasonEl.textContent='Run prediction...'; const ic=document.getElementById('input-context'); if(ic) ic.innerHTML='<p>N/A</p>'; const sc=document.getElementById('structure-context'); if(sc) sc.innerHTML='<p>N/A</p>'; const dc=document.getElementById('node-descriptions-context'); if(dc) dc.innerHTML='<p>N/A</p>'; setStatusMessage('predict-status', "", ""); }
-function downloadSessionLog() { if(sessionLog.length===0){alert("No logs.");return;} const h=['Timestamp','ConfigID','ConfigName','NodeID','ProbP1']; const r=[]; sessionLog.forEach(l=>{ const probs = l.probabilities || {}; Object.entries(probs).forEach(([n,p])=>{ if(typeof p === 'number') r.push([l.timestamp,l.configId,l.configName,n,p.toFixed(4)]); else console.warn("Skip non-numeric prob in session download:", n, p); }); }); const csv=Papa.unparse({fields:h,data:r}); triggerCsvDownload(csv, `session_log_${(currentConfig?.name||'unsaved').replace(/[^a-z0-9]/gi,'_')}`); }
+// function downloadSessionLog() { if(sessionLog.length===0){alert("No logs.");return;} const h=['Timestamp','ConfigID','ConfigName','NodeID','ProbP1']; const r=[]; sessionLog.forEach(l=>{ const probs = l.probabilities || {}; Object.entries(probs).forEach(([n,p])=>{ if(typeof p === 'number') r.push([l.timestamp,l.configId,l.configName,n,p.toFixed(4)]); else console.warn("Skip non-numeric prob in session download:", n, p); }); }); const csv=Papa.unparse({fields:h,data:r}); triggerCsvDownload(csv, `session_log_${(currentConfig?.name||'unsaved').replace(/[^a-z0-9]/gi,'_')}`); }
+
+function downloadSessionLog() {
+    if (sessionLog.length === 0) {
+        alert("No data logged in this session yet.");
+        return;
+    }
+    console.log("Generating session log CSV (row per prediction)...");
+
+    // --- Determine Dynamic Headers ---
+    const allNodeIds = new Set();
+    sessionLog.forEach(entry => {
+        // Get node IDs from the stored probabilities for this entry
+        Object.keys(entry.probabilities || {}).forEach(nodeId => allNodeIds.add(nodeId));
+    });
+    // Sort node IDs alphabetically for consistent column order
+    const sortedNodeIds = Array.from(allNodeIds).sort();
+
+    // Define the final headers
+    const csvHeaders = ["Timestamp", "ConfigID", "ConfigName", ...sortedNodeIds];
+    console.log("CSV Headers:", csvHeaders);
+
+    // --- Map Log Data to Rows ---
+    const csvData = sessionLog.map(entry => {
+        const row = { // Using object mapping for clarity with PapaParse
+            Timestamp: entry.timestamp,
+            ConfigID: entry.configId,
+            ConfigName: entry.configName,
+        };
+        // Add probability for each node ID in the header list
+        sortedNodeIds.forEach(nodeId => {
+            const probValue = entry.probabilities ? entry.probabilities[nodeId] : undefined;
+            // Format the probability or leave blank if not present for this entry
+            row[nodeId] = (probValue !== undefined && typeof probValue === 'number') ? probValue.toFixed(4) : '';
+        });
+        return row;
+    });
+
+    // --- Generate and Download CSV ---
+    try {
+        const csvString = Papa.unparse({
+            fields: csvHeaders, // Use dynamic headers
+            data: csvData
+        });
+        triggerCsvDownload(csvString, `session_log_${(currentConfig?.name || 'unsaved').replace(/[^a-z0-9]/gi, '_')}`);
+        console.log("Session log CSV download triggered.");
+    } catch (error) {
+        console.error("Error generating session log CSV:", error);
+        alert(`Error generating CSV: ${error.message}`);
+    }
+}
+
 async function downloadAllLogs() { if(!currentConfig||!currentConfig.id||currentConfig.id==="unknown"||currentConfig.id==="default-config-001"){alert("Load saved config.");return;} setStatusMessage('predict-status',"Downloading logs...","loading"); showSpinner(true); enableUI(false); await retryFetch(async()=>{ const r = await fetch(`/api/download_log/${currentConfig.id}`); if(!r.ok){ if(r.status === 404) throw new Error(`No logs for '${currentConfig.name}'.`); const e = await r.json().catch(()=>({detail:`HTTP ${r.status}`})); throw new Error(e.detail); } const b = await r.blob(); triggerCsvDownload(b, `all_logs_${currentConfig.name.replace(/[^a-z0-9]/gi,'_')}`); setStatusMessage('predict-status',"Logs downloaded.","success"); },3,()=>setStatusMessage('predict-status',"Download fail. Retry...","error")).catch(e=>{setStatusMessage('predict-status',`Log download fail: ${e.message}`,"error");}).finally(()=>{enableUI(true);showSpinner(false);});}
 function triggerCsvDownload(csvDataOrBlob, baseFilename) { const blob = (csvDataOrBlob instanceof Blob) ? csvDataOrBlob : new Blob([csvDataOrBlob], { type: 'text/csv;charset=utf-8;' }); const link = document.createElement("a"); const url = URL.createObjectURL(blob); link.setAttribute("href", url); const timestampStr = new Date().toISOString().replace(/[:.]/g, '-'); link.setAttribute("download", `${baseFilename}_${timestampStr}.csv`); link.style.visibility = 'hidden'; document.body.appendChild(link); link.click(); document.body.removeChild(link); URL.revokeObjectURL(url); }
 function markConfigUnsaved() { const d = document.getElementById('current-config-name'); if (d && !d.textContent.endsWith('*')) { d.textContent += '*'; setStatusMessage('config-status', "Graph modified. Save changes.", "loading"); } }
 function clearUnsavedMark() { const d = document.getElementById('current-config-name'); if (d && d.textContent.endsWith('*')) { d.textContent = d.textContent.slice(0, -1); } }
-function updateEditorPlaceholderText() { const p=document.querySelector('.graph-editor p'); if(!p)return; let m=""; const menusOk=contextMenuInstance!==null; /* const edgesOk=edgeHandlesInstance!==null; */ const edgesOk=false;} // Edgehandles removed if(!menusOk) m="Editing unavailable: Context menu library failed."; else m="Right-click nodes/canvas to edit. Start edge via menu."; p.innerHTML = `<b>Right-click canvas:</b> Add Input/Hidden node.<br><b>Right-click node:</b> Convert type, Delete, Start edge (then left-click target).<br><b>Right-click edge:</b> Delete edge.<br><i>Remember to 'Save' your configuration after making changes!</i>`; p.style.color=(menusOk)?'#555':'orange'; p.style.textAlign = 'left'; p.style.fontSize = '0.85em'; if (!menusOk) { p.innerHTML += ' <br><span style="color: orange; font-weight: bold;">Warning: Right-click menus might be disabled due to a loading error.</span>';}}
+function updateEditorPlaceholderText() {
+    const p = document.querySelector('.graph-editor p');
+    if (!p) {
+        console.error("Could not find graph editor instruction paragraph element.");
+        return;
+    }
 
+    // --- Detailed Instructions ---
+    p.innerHTML = `
+        <b>Editing Actions (Right-Click):</b><br>
+           • <b>On Empty Canvas:</b> Choose 'Add Input Node' or 'Add Hidden Node'. You'll be prompted for a display name (ID is auto-generated).<br>
+           • <b>On a Node:</b>
+            <ul>
+                <li><i>Start Edge From Here:</i> Select this, then <b>left-click</b> the target node to create a connection (cycles are prevented). Click canvas to cancel.</li>
+                <li><i>Convert Type:</i> Toggles node between 'Input' (rectangle) and 'Hidden' (ellipse).</li>
+                <li><i>Delete Node:</i> Removes the node and any connected edges.</li>
+            </ul>
+           • <b>On an Edge:</b> Choose 'Delete Edge' to remove the connection.
+        <br>
+        <i>Remember to 'Save' your configuration after making changes!</i>
+    `;
+    p.style.color = '#555'; // Reset color to default
+    p.style.textAlign = 'left'; // Align text left for readability
+    p.style.fontSize = '0.85em'; // Slightly smaller font for instructions
+
+    // Optional: Still log warning if menus failed
+    const menusOk = contextMenuInstance !== null;
+    if (!menusOk) {
+        console.warn("Context Menus library failed to initialize properly. Right-click might not work as expected.");
+        // Append a visual warning if desired
+        p.innerHTML += ' <br><span style="color: orange; font-weight: bold;">Warning: Right-click menus might be disabled due to a loading error.</span>';
+    }
+     console.log("Updated editor placeholder text with detailed instructions.");
+}
 // --- Editing Functions ---
 function addNodeFromMenu(nodeType, position) { if (!cy) return; newNodeCounter++; const idBase = nodeType === 'input' ? 'Input' : 'Hidden'; let id = `${idBase}_${newNodeCounter}`; while (cy.getElementById(id).length > 0) { newNodeCounter++; id = `${idBase}_${newNodeCounter}`; } const name = prompt(`Enter display name for new ${nodeType} node (ID: ${id}):`, id); if (name === null) return; const newNodeData = { group: 'nodes', data: { id: id.trim(), fullName: name.trim() || id.trim(), nodeType: nodeType }, position: position }; cy.add(newNodeData); console.log(`Added ${nodeType} node: ID=${id}, Name=${newNodeData.data.fullName}`); if (nodeType === 'input') { updateInputControls(cy.nodes().map(n => n.data())); } updateNodeProbabilities({}); runLayout(); markConfigUnsaved(); }
 function deleteElement(target) { if (!cy || !target || (!target.isNode && !target.isEdge)) return; const id = target.id(); const type = target.isNode() ? 'node' : 'edge'; let name = target.data('fullName') || id; if (target.isEdge()){ name = `${target.source().id()}->${target.target().id()}`; } if (confirm(`Delete ${type} "${name}"?`)) { const wasInputNode = target.isNode() && target.data('nodeType') === 'input'; cy.remove(target); console.log(`Removed ${type}: ${id}`); if(wasInputNode){ updateInputControls(cy.nodes().map(n => n.data())); } markConfigUnsaved(); } }
@@ -91,14 +219,16 @@ function initializeEditingExtensions() {
 
     // --- Register & Initialize Context Menus ---
     try {
+        // Check if library AND dependencies are loaded AND registration hasn't happened
         if (typeof cytoscapeContextMenus === 'function' && typeof tippy === 'function' && typeof Popper === 'object' && !didRegisterContextMenus) {
-             cytoscape.use( cytoscapeContextMenus );
-             didRegisterContextMenus = true; console.log("Context Menus registered.");
-             contextMenuInstance = cy.contextMenus({
+             cytoscape.use( cytoscapeContextMenus ); // REGISTER FIRST
+             didRegisterContextMenus = true; // Mark as registered only once
+             console.log("Context Menus registered.");
+             contextMenuInstance = cy.contextMenus({ // INITIALIZE instance
                  menuItems: [ // Use 'content' for V4.x
                      { id: 'add-input-core', content: 'Add Input Node Here', selector: '', coreAsWell: true, onClickFunction: (evt) => addNodeFromMenu('input', evt.position || evt.cyPosition) },
                      { id: 'add-hidden-core', content: 'Add Hidden Node Here', selector: '', coreAsWell: true, onClickFunction: (evt) => addNodeFromMenu('hidden', evt.position || evt.cyPosition), hasTrailingDivider: true },
-                     { id: 'start-edge', content: 'Start Edge From Here', selector: 'node', onClickFunction: (evt) => startEdgeCreation(evt.target || evt.cyTarget)}, // Click-to-connect start
+                     { id: 'start-edge', content: 'Start Edge From Here', selector: 'node', onClickFunction: (evt) => startEdgeCreation(evt.target || evt.cyTarget)}, // ADDED Click-to-connect start
                      { id: 'convert-type', content: 'Convert Type', selector: 'node', onClickFunction: (evt) => convertNodeType(evt.target || evt.cyTarget) },
                      { id: 'delete-node', content: 'Delete Node', selector: 'node', hasTrailingDivider: true, onClickFunction: (evt) => deleteElement(evt.target || evt.cyTarget) },
                      { id: 'delete-edge', content: 'Delete Edge', selector: 'edge', onClickFunction: (evt) => deleteElement(evt.target || evt.cyTarget) }
@@ -118,7 +248,7 @@ function initializeUI() {
     console.log("Initializing UI event listeners...");
     document.getElementById('save-config-button')?.addEventListener('click', saveConfiguration);
     document.getElementById('load-config-button')?.addEventListener('click', loadSelectedConfiguration);
-    // document.getElementById('set-default-button')?.addEventListener('click', setDefaultConfiguration); // Removed button
+    document.getElementById('set-default-button')?.addEventListener('click', setDefaultConfiguration);
     document.getElementById('delete-config-button')?.addEventListener('click', deleteSelectedConfiguration);
     document.getElementById('update-button')?.addEventListener('click', fetchAndUpdateLLM);
     document.getElementById('gradient-toggle')?.addEventListener('change', () => updateNodeProbabilities(null));
@@ -144,47 +274,25 @@ async function fetchAndUpdateLLM() { if(!currentConfig||!currentConfig.graph_str
 // --- DOMContentLoaded Listener (AT THE END) ---
 // ==================================================
 document.addEventListener('DOMContentLoaded', async () => {
+    // ... (Initialization sequence remains the same) ...
     console.log("DOM Content Loaded. Starting initialization sequence...");
-
     if (typeof cytoscape !== 'function') { alert("Error: Cytoscape library failed to load."); setStatusMessage('config-status', "Error: Core graph library failed.", "error"); showSpinner(false); return; }
     if (!document.getElementById('cy')) { alert("Error: Graph container element 'cy' not found."); setStatusMessage('config-status', "Error: Graph container missing.", "error"); showSpinner(false); return; }
-
-    // 1. Initialize Cytoscape Instance
-    initializeCytoscape(); // Creates 'cy' instance
-
-    if (!cy) { showSpinner(false); return; } // Stop if core failed
-
-    // 2. Initialize Editing Extensions (will try to register/init)
+    initializeCytoscape();
+    if (!cy) { showSpinner(false); return; }
     initializeEditingExtensions();
-
-    // 3. Initialize UI Button Listeners
     initializeUI();
-
-    // 4. Add Cytoscape Listeners for Click-to-Connect
     setupCytoscapeEventListeners();
-
-    // 5. Load Data
-    showSpinner(true);
-    setStatusMessage('config-status', "Loading config data...", "loading");
+    showSpinner(true); setStatusMessage('config-status', "Loading config data...", "loading");
     try {
         await loadDefaultConfig();
-        if (defaultGraphStructure) {
-            loadGraphData(defaultGraphStructure, true);
-            addDefaultToDropdown();
-            const select = document.getElementById('load-config-select');
-            if(!select.value || select.value === "") { selectConfigInDropdown(defaultGraphStructure.id); }
-        } else { throw new Error("Default config data unavailable."); }
+        if (defaultGraphStructure) { loadGraphData(defaultGraphStructure, true); addDefaultToDropdown(); const select = document.getElementById('load-config-select'); if(!select.value || select.value === "") { selectConfigInDropdown(defaultGraphStructure.id); } }
+        else { throw new Error("Default config data unavailable."); }
         await loadConfigList();
         const finalStatus = currentConfig ? `Config '${currentConfig.name}' loaded.` : "Ready.";
         if (!document.getElementById('config-status').classList.contains('error')){ setStatusMessage('config-status', finalStatus, "success"); }
-    } catch (error) {
-        console.error("Initialization Data Load Error:", error);
-        if (!document.getElementById('config-status').classList.contains('error')) { setStatusMessage('config-status', `Initialization failed: ${error.message}`, "error"); }
-        if (!currentConfig) { updateInputControls([]); const currentNameEl = document.getElementById('current-config-name'); if(currentNameEl) currentNameEl.textContent = "None"; }
-    } finally {
-        showSpinner(false);
-    }
-}); // <-- **** ENSURE THIS CLOSES THE DOMContentLoaded LISTENER ****
-
+    } catch (error) { console.error("Initialization Data Load Error:", error); if (!document.getElementById('config-status').classList.contains('error')) { setStatusMessage('config-status', `Initialization failed: ${error.message}`, "error"); } if (!currentConfig) { updateInputControls([]); const currentNameEl = document.getElementById('current-config-name'); if(currentNameEl) currentNameEl.textContent = "None"; } }
+    finally { showSpinner(false); }
+});
 
 console.log("script.js loaded and parsed. Waiting for DOMContentLoaded.");
