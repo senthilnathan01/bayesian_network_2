@@ -26,7 +26,7 @@
   ],
   "functions": {
     "api/main.py": {
-      "maxDuration": 60 // Set timeout to 60 seconds (adjust as needed)
+      "maxDuration": 60
     }
   }
 }
